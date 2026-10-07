@@ -87,7 +87,7 @@ npm run build:desktop
 | Тексты секций | `components/sections/*.tsx` (по файлу на секцию) |
 | Цвета, шрифты, общие стили | `app/globals.css`, переменные в `:root` (`--lime`, `--bg`, …) |
 | Стили конкретной секции | соседний `*.module.css` |
-| Форма и цвет волокон, сцены по секциям | `lib/ribbons.ts`, объект `SCENES` и функция `palette` в шейдере |
+| Русло «реки» из волокон по секциям, её ширина и цвет | `lib/ribbons.ts`, объект `RIVER` и функция `palette` в шейдере |
 | Столбики «runs per weekday» | `lib/isoBars.ts` и `components/sections/IsoBarsCard.tsx` (`VALUES`) |
 | Заставка | `components/Intro.tsx` |
 | Тарифы и логика ползунка | `components/sections/Pricing.tsx` (`PLANS`, `MIN`, `MAX`) |
@@ -108,7 +108,7 @@ components/
   sections/              по компоненту на секцию + их стили
   ui/                    Typewriter, RollingNumber, SectionHead, Avatar, Icons
 lib/
-  ribbons.ts             фон на three.js (шейдеры, сцены, пыль, боке)
+  ribbons.ts             фон на three.js: «река» из волокон, пыль, боке
   isoBars.ts             изометрические столбики на three.js
   world.ts               контуры материков для точечной карты
   hooks.ts, motion.ts    видимость, счётчики, плавности

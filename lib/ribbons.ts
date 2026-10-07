@@ -1,136 +1,163 @@
 /* ==========================================================================
    Light ribbons (three.js)
 
-   A bundle of thin glowing fibers follows a cubic Bézier "spine". The fibers
-   sit on a twisted tube that pinches into a bright focal point (the waist) and
-   fans out towards both ends. Dust sparkles travel along the fibers, soft
-   bokeh discs float around them, and faint stars sit behind everything.
+   One long "river" of thin glowing fibers runs down the whole page. Its
+   course is pinned to the sections ([data-scene] elements): every section
+   lists the points the river passes through, relative to its own box. The
+   river lives in page coordinates, so scrolling simply slides it up with the
+   content — nothing morphs or lags behind.
 
-   Every element with a [data-scene] attribute pins one SCENE to its scroll
-   position; the spine morphs between scenes as the page scrolls.
-   All geometry is generated in the vertex shaders from a handful of uniforms,
-   so a frame costs a few draw calls and no CPU-side geometry work.
+   Each frame the stretch of river around the viewport is resampled into a
+   tiny float texture (position, normal, width, glow); the vertex shaders read
+   it to place the fibers, the dust drifting downstream and the bokeh. Twist,
+   pulses and particles are keyed to the distance along the river, so they
+   stay attached to it and flow downstream instead of following the screen.
    ========================================================================== */
 
 import type * as THREE_NS from 'three';
 
 type Three = typeof THREE_NS;
 
-type Scene = {
-  /** Bézier control points, viewport fractions (x right, y down). */
-  p: [number, number][];
-  /** Where along the spine (0..1) the bundle pinches. */
-  waist: number;
-  /** Tube radius at start, waist and end, as a fraction of min(width, height). */
-  rad: [number, number, number];
-  twist: number;
-  /** 0 = round tube, 1 = flat ribbon. */
-  flat: number;
-  /** Focal glow strength. */
-  glow: number;
-  gain: number;
+type Anchor = {
+  /** Fraction of the viewport width. */
+  x: number;
+  /** Fraction of the section height (may go below 0 or above 1). */
+  y: number;
+  /** Half-width of the bundle, as a fraction of min(viewport width, height). */
+  r: number;
+  /** Pinch glow: 1 at the bright focal point. */
+  glow?: number;
+  /** Brightness multiplier; 0 fades the river in or out. */
+  gain?: number;
+  /** 0 = round twisted tube, 1 = flat ribbon. */
+  flat?: number;
 };
 
-const SCENES: Record<string, Scene> = {
-  hero: {
-    p: [[0.74, 1.2], [0.1, 0.8], [0.27, 0.4], [1.16, -0.1]],
-    waist: 0.42, rad: [0.17, 0.012, 0.37], twist: 5.5, flat: 0.12, glow: 1, gain: 1,
-  },
-  arc: {
-    p: [[0.5, -0.16], [0.97, 0.2], [0.95, 0.62], [0.62, 1.16]],
-    waist: 0.5, rad: [0.12, 0.085, 0.14], twist: 2.6, flat: 0.55, glow: 0, gain: 0.95,
-  },
-  sweep: {
-    p: [[-0.12, 1.15], [0.25, 0.75], [0.55, 0.25], [1.15, -0.1]],
-    waist: 0.5, rad: [0.18, 0.1, 0.22], twist: 3.4, flat: 0.4, glow: 0.12, gain: 1.15,
-  },
-  low: {
-    p: [[-0.15, 0.9], [0.35, 1.1], [0.75, 0.15], [1.2, 0.3]],
-    waist: 0.5, rad: [0.14, 0.08, 0.18], twist: 3.5, flat: 0.4, glow: 0.08, gain: 1.05,
-  },
-  edge: {
-    p: [[1.1, -0.15], [0.78, 0.25], [0.95, 0.7], [1.15, 1.15]],
-    waist: 0.5, rad: [0.1, 0.08, 0.14], twist: 3.6, flat: 0.45, glow: 0, gain: 1.05,
-  },
-  dusk: {
-    p: [[0.0, 1.2], [0.4, 0.75], [0.75, 0.45], [1.2, 0.0]],
-    waist: 0.45, rad: [0.14, 0.08, 0.2], twist: 4.4, flat: 0.3, glow: 0.18, gain: 1.05,
-  },
-  loop: {
-    p: [[0.45, 1.2], [-0.1, 0.75], [0.25, 0.15], [0.75, -0.15]],
-    waist: 0.47, rad: [0.12, 0.06, 0.18], twist: 5, flat: 0.25, glow: 0.3, gain: 1.05,
-  },
-  wave: {
-    p: [[-0.15, 0.3], [0.35, 0.02], [0.6, 0.88], [1.15, 0.42]],
-    waist: 0.55, rad: [0.1, 0.05, 0.23], twist: 6, flat: 0.3, glow: 0.18, gain: 1,
-  },
-  finale: {
-    p: [[-0.15, 0.08], [0.3, -0.06], [0.65, 0.28], [1.15, 0.04]],
-    waist: 0.5, rad: [0.08, 0.04, 0.16], twist: 5, flat: 0.3, glow: 0, gain: 0.55,
-  },
+const FROST = 1.7; // the frosted sections blur the river, so it burns brighter there
+
+// Where the river runs, section by section (keys match data-scene).
+const RIVER: Record<string, Anchor[]> = {
+  hero: [
+    { x: 1.22, y: -0.5, r: 0.46, gain: 0, flat: 0.1 },
+    { x: 0.97, y: -0.06, r: 0.34, flat: 0.1 },
+    { x: 0.66, y: 0.24, r: 0.2, flat: 0.12 },
+    { x: 0.44, y: 0.5, r: 0.075, glow: 0.35, flat: 0.12 },
+    { x: 0.36, y: 0.68, r: 0.012, glow: 1, flat: 0.12 },
+    { x: 0.46, y: 0.86, r: 0.12, glow: 0.3, flat: 0.2 },
+    { x: 0.6, y: 1.02, r: 0.17, flat: 0.35 },
+  ],
+  arc: [
+    { x: 0.7, y: 0.3, r: 0.2, flat: 0.5 },
+    { x: 0.71, y: 0.85, r: 0.21, flat: 0.5 },
+  ],
+  sweep: [
+    { x: 0.62, y: 0.04, r: 0.2, gain: FROST },
+    { x: 0.36, y: 0.15, r: 0.22, gain: FROST },
+    { x: 0.16, y: 0.3, r: 0.22, gain: FROST },
+    { x: 0.2, y: 0.5, r: 0.22, gain: FROST },
+    { x: 0.5, y: 0.72, r: 0.24, gain: FROST },
+    { x: 0.75, y: 0.92, r: 0.24, gain: FROST },
+  ],
+  low: [
+    { x: 0.8, y: 0.15, r: 0.24, gain: FROST },
+    { x: 0.55, y: 0.45, r: 0.24, gain: FROST },
+    { x: 0.82, y: 0.8, r: 0.24, gain: FROST },
+  ],
+  edge: [
+    { x: 0.85, y: 0.25, r: 0.22, gain: FROST },
+    { x: 0.75, y: 0.8, r: 0.22, gain: FROST },
+  ],
+  dusk: [
+    { x: 0.62, y: 0.25, r: 0.22, gain: FROST },
+    { x: 0.36, y: 0.6, r: 0.22, gain: FROST },
+    { x: 0.22, y: 0.92, r: 0.22, gain: FROST },
+  ],
+  loop: [
+    { x: 0.25, y: 0.3, r: 0.22, gain: FROST },
+    { x: 0.3, y: 0.65, r: 0.2, gain: FROST },
+    { x: 0.1, y: 0.95, r: 0.16 },
+  ],
+  // in pricing the river swings across the full width, behind the cards
+  wave: [
+    { x: -0.25, y: 0.02, r: 0.14, gain: 1.25 },
+    { x: 0.5, y: 0.13, r: 0.15, gain: 1.25 },
+    { x: 1.25, y: 0.26, r: 0.16, gain: 1.25 },
+    { x: 0.5, y: 0.5, r: 0.16, gain: 1.25 },
+    { x: -0.25, y: 0.66, r: 0.16, gain: 1.25 },
+    { x: 0.5, y: 0.86, r: 0.15, gain: 1.2 },
+    { x: 1.25, y: 1.0, r: 0.15, gain: 1.1 },
+  ],
+  // one last swing under the final cards, then the river leaves the page
+  finale: [
+    { x: 0.5, y: 0.12, r: 0.15, gain: 0.9 },
+    { x: -0.3, y: 0.3, r: 0.16, gain: 0.6 },
+    { x: -0.8, y: 0.6, r: 0.2, gain: 0 },
+  ],
 };
+
+const K = 256; // samples of the visible stretch uploaded per frame
+const ROWS = 3;
 
 /* ------------------------------------------------------------------------ */
 /* GLSL                                                                      */
 /* ------------------------------------------------------------------------ */
 
-const TUBE = /* glsl */ `
+const COMMON = /* glsl */ `
+uniform sampler2D uSpine;
 uniform vec2 uRes;
 uniform float uTime;
-uniform vec2 uP0;
-uniform vec2 uP1;
-uniform vec2 uP2;
-uniform vec2 uP3;
-uniform float uWaist;
-uniform vec3 uRad;
-uniform float uTwist;
-uniform float uFlat;
 uniform float uReveal;
 uniform float uDpr;
 uniform float uCalm;
 
-vec2 bez(float t) {
-  float it = 1.0 - t;
-  return it * it * it * uP0 + 3.0 * it * it * t * uP1 + 3.0 * it * t * t * uP2 + t * t * t * uP3;
-}
-vec2 bezd(float t) {
-  float it = 1.0 - t;
-  return 3.0 * it * it * (uP1 - uP0) + 6.0 * it * t * (uP2 - uP1) + 3.0 * t * t * (uP3 - uP2);
+vec4 spineAt(float i, float row) {
+  return texture2D(uSpine, vec2((i + 0.5) / ${K}.0, (row + 0.5) / ${ROWS}.0));
 }
 
-// Point on fiber \`s\` at spine position \`t\`, in drawing-buffer pixels.
-vec2 fiber(float t, vec4 s, float scatter, out vec2 nm, out float depth, out float k) {
-  float m = min(uRes.x, uRes.y);
-  vec2 c = bez(t) * uRes;
-  vec2 d = bezd(t) * uRes;
-  vec2 tg = d / max(length(d), 0.0001);
-  nm = vec2(-tg.y, tg.x);
-  float far = step(uWaist, t);
-  float span = mix(uWaist, 1.0 - uWaist, far);
-  k = clamp(abs(t - uWaist) / max(span, 0.001), 0.0, 1.0);
-  float open = mix(uRad.x, uRad.z, far);
-  float r = mix(uRad.y, open, pow(k, 1.25)) * m * scatter;
-  float theta = s.x * 6.2831853 + uTwist * (t - uWaist) + uTime * (0.04 + 0.08 * s.y);
-  float spread = 0.22 + 0.78 * s.z;
+// Stretch of river on screen, t in 0..1. c: centre (device px), n: normal,
+// r: half-width (device px), s: distance along the river (css px),
+// e: glow, gain, flatness.
+void spine(float t, out vec2 c, out vec2 n, out float r, out float s, out vec3 e) {
+  float f = clamp(t, 0.0, 1.0) * ${K - 1}.0;
+  float i = floor(f);
+  float a = f - i;
+  float j = min(i + 1.0, ${K - 1}.0);
+  vec4 p = mix(spineAt(i, 0.0), spineAt(j, 0.0), a);
+  vec4 q = mix(spineAt(i, 1.0), spineAt(j, 1.0), a);
+  vec4 w = mix(spineAt(i, 2.0), spineAt(j, 2.0), a);
+  c = p.xy;
+  n = normalize(p.zw + vec2(0.0, 1e-5));
+  r = q.x;
+  s = q.y;
+  e = vec3(q.z, q.w, w.x);
+}
+
+// One fiber of the bundle: fibers sit on a slowly twisting tube around the
+// centre line; the twist is keyed to s, so it travels with the river.
+vec2 fiber(float t, vec4 sd, float scatter, out vec2 n, out float depth, out float s, out vec3 e) {
+  vec2 c; float r;
+  spine(t, c, n, r, s, e);
+  float theta = sd.x * 6.2831853 + s * 0.0036 + uTime * (0.05 + 0.08 * sd.y);
+  float spread = 0.22 + 0.78 * sd.z;
   depth = sin(theta);
-  float off = mix(cos(theta) * spread, s.x * 2.0 - 1.0, uFlat) * r;
-  off += sin(t * (4.0 + 5.0 * s.w) + uTime * (0.35 + 0.3 * s.y) + s.w * 6.2831) * 0.016 * m * k;
-  return c + nm * off;
+  float off = mix(cos(theta) * spread, sd.x * 2.0 - 1.0, e.z) * r * scatter;
+  off += sin(s * (0.0025 + 0.003 * sd.w) + uTime * (0.35 + 0.3 * sd.y) + sd.w * 6.2831) * r * 0.12;
+  return c + n * off;
 }
 
-vec3 palette(float w, float t) {
+vec3 palette(float w, float glow) {
   vec3 lime = vec3(0.8, 0.97, 0.32);
   vec3 yg = vec3(0.62, 0.9, 0.24);
   vec3 green = vec3(0.38, 0.82, 0.42);
   vec3 blue = vec3(0.32, 0.66, 0.96);
-  vec3 c = w < 0.52 ? lime : (w < 0.72 ? yg : (w < 0.83 ? green : blue));
-  float nearW = exp(-pow((t - uWaist) * 6.5, 2.0));
-  return mix(c, vec3(1.0, 1.0, 0.86), nearW * 0.55);
+  vec3 col = w < 0.52 ? lime : (w < 0.72 ? yg : (w < 0.83 ? green : blue));
+  return mix(col, vec3(1.0, 1.0, 0.86), glow * 0.55);
 }
 
-float grow(float t, float s) {
-  float edge = 1.0 - uReveal * 1.3 + s * 0.08;
-  return smoothstep(edge, edge + 0.22, t);
+// after the intro the river runs in from its source, downstream
+float grow(float s, float z) {
+  float edge = uReveal + z * 80.0;
+  return 1.0 - smoothstep(edge - 320.0, edge, s);
 }
 
 vec4 toClip(vec2 p) {
@@ -140,26 +167,23 @@ vec4 toClip(vec2 p) {
 `;
 
 const RIBBON_VS = /* glsl */ `
-${TUBE}
+${COMMON}
 attribute vec4 aSeed;
 uniform float uWidth;
 uniform float uGain;
 varying float vSide;
 varying vec3 vCol;
 void main() {
-  float t = position.x;
-  float side = position.y;
-  vec2 nm; float depth; float k;
-  vec2 p = fiber(t, aSeed, 1.0, nm, depth, k);
+  vec2 n; float depth; float s; vec3 e;
+  vec2 p = fiber(position.x, aSeed, 1.0, n, depth, s, e);
   float w = uWidth * uDpr * (0.75 + 0.5 * aSeed.z) * (1.0 + 0.25 * depth);
-  p += nm * side * w;
-  float ends = smoothstep(0.0, 0.06, t) * smoothstep(1.0, 0.94, t);
-  float nearW = exp(-pow((t - uWaist) * 6.5, 2.0));
+  p += n * position.y * w;
   float front = mix(0.4, 1.0, 0.5 + 0.5 * depth);
-  float pulse = 0.72 + 0.28 * sin(t * 34.0 - uTime * (1.6 + 1.4 * aSeed.y) + aSeed.w * 31.0);
-  float lum = ends * front * pulse * grow(t, aSeed.z) * (0.5 + 1.7 * nearW) * (0.45 + 0.9 * aSeed.y) * uGain * uCalm;
-  vCol = palette(aSeed.w, t) * lum;
-  vSide = side;
+  // pulses roll downstream
+  float pulse = 0.72 + 0.28 * sin(s * 0.022 - uTime * (1.6 + 1.4 * aSeed.y) + aSeed.w * 31.0);
+  float lum = front * pulse * grow(s, aSeed.z) * (0.5 + 1.7 * e.x) * (0.45 + 0.9 * aSeed.y) * e.y * uGain * uCalm;
+  vCol = palette(aSeed.w, e.x) * lum;
+  vSide = position.y;
   gl_Position = toClip(p);
 }
 `;
@@ -174,23 +198,29 @@ void main() {
 }
 `;
 
-// Dust and bokeh share one vertex shader: position = (t0, speed, size).
+// position = (phase, speed in css px/s downstream, size). Each particle sits
+// at a fixed distance along the river (repeating every uPeriod px) and drifts.
 const POINTS_VS = /* glsl */ `
-${TUBE}
+${COMMON}
 attribute vec4 aSeed;
 uniform float uSize;
 uniform float uGain;
 uniform float uScatter;
+uniform float uS0;
+uniform float uS1;
+uniform float uPeriod;
 varying vec3 vCol;
 void main() {
-  float t = fract(position.x + uTime * position.y);
-  vec2 nm; float depth; float k;
-  vec2 p = fiber(t, aSeed, uScatter, nm, depth, k);
-  float ends = smoothstep(0.0, 0.1, t) * smoothstep(1.0, 0.9, t);
+  float base = position.x * uPeriod + uTime * position.y;
+  float sp = uS0 + mod(base - uS0, uPeriod);
+  float t = (sp - uS0) / max(uS1 - uS0, 1.0);
+  float inside = step(t, 1.0);
+  vec2 n; float depth; float s; vec3 e;
+  vec2 p = fiber(t, aSeed, uScatter, n, depth, s, e);
   float tw = 0.55 + 0.45 * sin(uTime * (0.8 + 2.2 * aSeed.y) + aSeed.w * 40.0);
-  vCol = palette(aSeed.w, t) * ends * tw * grow(t, aSeed.z) * uGain * uCalm;
-  gl_PointSize = uSize * (0.35 + position.z) * uDpr;
-  gl_Position = toClip(p);
+  vCol = palette(aSeed.w, e.x) * tw * grow(s, aSeed.z) * e.y * uGain * uCalm * inside;
+  gl_PointSize = uSize * (0.35 + position.z) * uDpr * inside;
+  gl_Position = inside > 0.5 ? toClip(p) : vec4(2.0, 2.0, 2.0, 1.0);
 }
 `;
 
@@ -275,7 +305,6 @@ export function createRibbons(THREE: Three, canvas: HTMLCanvasElement): Ribbons 
     powerPreference: 'high-performance',
   });
   renderer.setClearColor(0x000000, 1);
-  renderer.autoClear = true;
 
   let dpr = Math.min(window.devicePixelRatio || 1, 1.6);
   const bufferSize = new THREE.Vector2();
@@ -283,28 +312,28 @@ export function createRibbons(THREE: Three, canvas: HTMLCanvasElement): Ribbons 
   const camera = new THREE.Camera();
 
   // deterministic seeds so the composition is identical on every load
-  let s = 7;
+  let seed = 7;
   const rand = () => {
-    s = (s * 16807) % 2147483647;
-    return (s - 1) / 2147483646;
+    seed = (seed * 16807) % 2147483647;
+    return (seed - 1) / 2147483646;
   };
 
+  /* ---------- the visible stretch, as a float texture ---------- */
+  const spineData = new Float32Array(K * ROWS * 4);
+  const spineTex = new THREE.DataTexture(spineData, K, ROWS, THREE.RGBAFormat, THREE.FloatType);
+  spineTex.minFilter = THREE.NearestFilter;
+  spineTex.magFilter = THREE.NearestFilter;
+  spineTex.generateMipmaps = false;
+  spineTex.needsUpdate = true;
+
   const common = {
+    uSpine: { value: spineTex },
     uRes: { value: new THREE.Vector2(1, 1) },
     uTime: { value: 0 },
-    uP0: { value: new THREE.Vector2() },
-    uP1: { value: new THREE.Vector2() },
-    uP2: { value: new THREE.Vector2() },
-    uP3: { value: new THREE.Vector2() },
-    uWaist: { value: 0.4 },
-    uRad: { value: new THREE.Vector3() },
-    uTwist: { value: 5 },
-    uFlat: { value: 0.1 },
     uReveal: { value: 0 },
     uDpr: { value: dpr },
     uCalm: { value: 1 },
   };
-
   const additive = {
     transparent: true,
     depthTest: false,
@@ -314,31 +343,30 @@ export function createRibbons(THREE: Three, canvas: HTMLCanvasElement): Ribbons 
 
   /* ---------- fibers ---------- */
   const LINES = small ? 84 : 140;
-  const SEG = small ? 120 : 170;
+  const SEG = small ? 200 : 280;
   const seeds: number[][] = [];
   for (let l = 0; l < LINES; l++) seeds.push([rand(), rand(), Math.sqrt(rand()), rand()]);
 
   function fiberGeometry(count: number) {
     const per = (SEG + 1) * 2;
     const pos = new Float32Array(count * per * 3);
-    const seed = new Float32Array(count * per * 4);
+    const sd = new Float32Array(count * per * 4);
     const index = new Uint32Array(count * SEG * 6);
     let v = 0;
     let q = 0;
     let ii = 0;
     for (let l = 0; l < count; l++) {
       const base = l * per;
-      for (let sgi = 0; sgi <= SEG; sgi++) {
-        const t = sgi / SEG;
+      for (let k = 0; k <= SEG; k++) {
         for (let side = -1; side <= 1; side += 2) {
-          pos[v++] = t;
+          pos[v++] = k / SEG;
           pos[v++] = side;
           pos[v++] = l;
-          seed.set(seeds[l], q);
+          sd.set(seeds[l], q);
           q += 4;
         }
-        if (sgi < SEG) {
-          const a = base + sgi * 2;
+        if (k < SEG) {
+          const a = base + k * 2;
           index.set([a, a + 1, a + 2, a + 1, a + 3, a + 2], ii);
           ii += 6;
         }
@@ -346,7 +374,7 @@ export function createRibbons(THREE: Three, canvas: HTMLCanvasElement): Ribbons 
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 4));
+    geo.setAttribute('aSeed', new THREE.BufferAttribute(sd, 4));
     geo.setIndex(new THREE.BufferAttribute(index, 1));
     return geo;
   }
@@ -354,41 +382,48 @@ export function createRibbons(THREE: Three, canvas: HTMLCanvasElement): Ribbons 
   const fibers = fiberGeometry(LINES);
   const haze = fiberGeometry(Math.round(LINES * 0.3));
 
-  function ribbonMaterial(width: number, gain: number, falloff: number) {
-    return new THREE.ShaderMaterial({
+  const ribbonMaterial = (width: number, gain: number, falloff: number) =>
+    new THREE.ShaderMaterial({
       ...additive,
       uniforms: { ...common, uWidth: { value: width }, uGain: { value: gain }, uFalloff: { value: falloff } },
       vertexShader: RIBBON_VS,
       fragmentShader: RIBBON_FS,
     });
-  }
-
   const hazeMat = ribbonMaterial(30, 0.016, 1.6);
   const glowMat = ribbonMaterial(4.4, 0.072, 2.2);
   const coreMat = ribbonMaterial(1.0, 0.42, 1.0);
 
-  /* ---------- dust + bokeh ---------- */
+  /* ---------- dust drifting downstream + bokeh ---------- */
+  const PERIOD = 12000; // css px of river each particle repeats over
   function pointsGeometry(count: number, speed: [number, number], size: [number, number]) {
     const pos = new Float32Array(count * 3);
-    const seed = new Float32Array(count * 4);
+    const sd = new Float32Array(count * 4);
     for (let i = 0; i < count; i++) {
       pos[i * 3] = rand();
-      pos[i * 3 + 1] = (speed[0] + rand() * (speed[1] - speed[0])) * (rand() < 0.5 ? 1 : -1);
+      pos[i * 3 + 1] = speed[0] + rand() * (speed[1] - speed[0]);
       pos[i * 3 + 2] = size[0] + Math.pow(rand(), 2) * (size[1] - size[0]);
-      seed.set([rand(), rand(), Math.sqrt(rand()), rand()], i * 4);
+      sd.set([rand(), rand(), Math.sqrt(rand()), rand()], i * 4);
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 4));
+    geo.setAttribute('aSeed', new THREE.BufferAttribute(sd, 4));
     return geo;
   }
-
-  const dustGeo = pointsGeometry(small ? 150 : 320, [0.004, 0.02], [0.2, 1]);
-  const bokehGeo = pointsGeometry(small ? 22 : 44, [0.002, 0.008], [0.2, 1]);
+  const range = { s0: { value: 0 }, s1: { value: 1 } };
+  const dustGeo = pointsGeometry(small ? 800 : 1500, [18, 80], [0.2, 1]);
+  const bokehGeo = pointsGeometry(small ? 110 : 210, [6, 22], [0.2, 1]);
   const pointsMaterial = (fs: string, size: number, gain: number, scatter: number) =>
     new THREE.ShaderMaterial({
       ...additive,
-      uniforms: { ...common, uSize: { value: size }, uGain: { value: gain }, uScatter: { value: scatter } },
+      uniforms: {
+        ...common,
+        uSize: { value: size },
+        uGain: { value: gain },
+        uScatter: { value: scatter },
+        uS0: range.s0,
+        uS1: range.s1,
+        uPeriod: { value: PERIOD },
+      },
       vertexShader: POINTS_VS,
       fragmentShader: fs,
     });
@@ -413,144 +448,201 @@ export function createRibbons(THREE: Three, canvas: HTMLCanvasElement): Ribbons 
   glowGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
   const focalMat = new THREE.ShaderMaterial({
     ...additive,
-    uniforms: { uRes: common.uRes, uFocus: { value: new THREE.Vector2() }, uGlow: { value: 1 } },
+    uniforms: { uRes: common.uRes, uFocus: { value: new THREE.Vector2() }, uGlow: { value: 0 } },
     vertexShader: GLOW_VS,
     fragmentShader: GLOW_FS,
   });
 
-  const objects: THREE_NS.Object3D[] = [
-    new THREE.Points(starGeo, starMat),
+  const river: THREE_NS.Object3D[] = [
     new THREE.Mesh(haze, hazeMat),
     new THREE.Mesh(fibers, glowMat),
     new THREE.Mesh(fibers, coreMat),
     new THREE.Points(bokehGeo, bokehMat),
     new THREE.Points(dustGeo, dustMat),
-    new THREE.Mesh(glowGeo, focalMat),
   ];
-  objects.forEach((o, i) => {
+  const focal = new THREE.Mesh(glowGeo, focalMat);
+  [new THREE.Points(starGeo, starMat), ...river, focal].forEach((o, i) => {
     o.frustumCulled = false;
     o.renderOrder = i;
     scene3.add(o);
   });
 
-  /* ---------- scenes along the page ---------- */
-  const clone = (sc: Scene): Scene => ({ ...sc, p: sc.p.map((pt) => [pt[0], pt[1]] as [number, number]), rad: [...sc.rad] as Scene['rad'] });
-  const mix = (a: Scene, b: Scene, f: number, out: Scene) => {
-    for (let i = 0; i < 4; i++) {
-      out.p[i][0] = a.p[i][0] + (b.p[i][0] - a.p[i][0]) * f;
-      out.p[i][1] = a.p[i][1] + (b.p[i][1] - a.p[i][1]) * f;
-    }
-    for (let j = 0; j < 3; j++) out.rad[j] = a.rad[j] + (b.rad[j] - a.rad[j]) * f;
-    out.waist = a.waist + (b.waist - a.waist) * f;
-    out.twist = a.twist + (b.twist - a.twist) * f;
-    out.flat = a.flat + (b.flat - a.flat) * f;
-    out.glow = a.glow + (b.glow - a.glow) * f;
-    out.gain = a.gain + (b.gain - a.gain) * f;
-    return out;
-  };
-  const smooth = (x: number) => {
-    const c = Math.min(1, Math.max(0, x));
-    return c * c * (3 - 2 * c);
-  };
+  /* ---------- the river's course, in page coordinates (css px) ---------- */
+  let W = window.innerWidth;
+  let H = window.innerHeight;
+  let N = 0; // dense samples, evenly spaced along the river
+  let ds = 1; // spacing between them
+  let px = new Float32Array(0);
+  let py = new Float32Array(0);
+  let tx = new Float32Array(0);
+  let ty = new Float32Array(0);
+  let rad = new Float32Array(0);
+  let glo = new Float32Array(0);
+  let gai = new Float32Array(0);
+  let fla = new Float32Array(0);
+  let focusPage: [number, number] | null = null;
+  let focusS = 0; // distance along the river to the focal point
+  let firstWindowEnd = 0;
 
-  let keys: { at: number; scene: Scene }[] = [];
   function measure() {
-    const vh = window.innerHeight;
-    keys = [];
-    document.querySelectorAll<HTMLElement>('[data-scene]').forEach((el) => {
-      const sc = SCENES[el.dataset.scene ?? ''];
-      if (!sc) return;
-      const top = el.getBoundingClientRect().top + window.scrollY;
-      keys.push({ at: Math.max(0, top - vh * 0.35), scene: sc });
+    W = window.innerWidth;
+    H = window.innerHeight;
+    const M = Math.min(W, H);
+    type P = { x: number; y: number; r: number; glow: number; gain: number; flat: number };
+    const pts: P[] = [];
+    const sections = Array.from(document.querySelectorAll<HTMLElement>('[data-scene]'))
+      .map((el) => ({ el, top: el.getBoundingClientRect().top + window.scrollY, h: el.offsetHeight }))
+      .sort((a, b) => a.top - b.top);
+    sections.forEach(({ el, top, h }) => {
+      (RIVER[el.dataset.scene ?? ''] ?? []).forEach((a) =>
+        pts.push({ x: a.x * W, y: top + a.y * h, r: a.r * M, glow: a.glow ?? 0, gain: a.gain ?? 1, flat: a.flat ?? 0.3 }),
+      );
     });
-    keys.sort((a, b) => a.at - b.at);
-    if (!keys.length) keys.push({ at: 0, scene: SCENES.hero });
-  }
+    focusPage = null;
+    if (pts.length < 2) {
+      N = 0;
+      return;
+    }
+    const focusAt = pts.findIndex((p) => p.glow >= 1);
+    if (focusAt >= 0) focusPage = [pts[focusAt].x, pts[focusAt].y];
 
-  function sceneAt(y: number, out: Scene) {
-    const vh = window.innerHeight;
-    if (y <= keys[0].at || keys.length === 1) return mix(keys[0].scene, keys[0].scene, 0, out);
-    for (let i = 0; i < keys.length - 1; i++) {
-      const a = keys[i];
-      const b = keys[i + 1];
-      if (y < b.at) {
-        const start = Math.max(a.at, b.at - vh * 0.9);
-        return mix(a.scene, b.scene, smooth((y - start) / Math.max(1, b.at - start)), out);
+    const curve = new THREE.CatmullRomCurve3(
+      pts.map((p) => new THREE.Vector3(p.x, p.y, 0)),
+      false,
+      'centripetal',
+    );
+    curve.arcLengthDivisions = pts.length * 60;
+    const total = curve.getLength();
+    N = Math.max(2, Math.min(8000, Math.ceil(total / 6)));
+    ds = total / (N - 1);
+    px = new Float32Array(N);
+    py = new Float32Array(N);
+    tx = new Float32Array(N);
+    ty = new Float32Array(N);
+    rad = new Float32Array(N);
+    glo = new Float32Array(N);
+    gai = new Float32Array(N);
+    fla = new Float32Array(N);
+    const v = new THREE.Vector3();
+    const smooth = (f: number) => f * f * (3 - 2 * f);
+    for (let i = 0; i < N; i++) {
+      const u = i / (N - 1);
+      const t = curve.getUtoTmapping(u, u * total);
+      curve.getPoint(t, v);
+      px[i] = v.x;
+      py[i] = v.y;
+      curve.getTangent(t, v);
+      tx[i] = v.x;
+      ty[i] = v.y;
+      // attributes ease between the anchors either side
+      const seg = t * (pts.length - 1);
+      const k = Math.min(pts.length - 2, Math.floor(seg));
+      const f = smooth(Math.min(1, Math.max(0, seg - k)));
+      const a = pts[k];
+      const b = pts[k + 1];
+      rad[i] = a.r + (b.r - a.r) * f;
+      glo[i] = a.glow + (b.glow - a.glow) * f;
+      gai[i] = a.gain + (b.gain - a.gain) * f;
+      fla[i] = a.flat + (b.flat - a.flat) * f;
+    }
+    // how far the river has to grow in so the first screen is covered
+    firstWindowEnd = 0;
+    let best = Infinity;
+    for (let i = 0; i < N; i++) {
+      if (py[i] <= H * 1.4) firstWindowEnd = i * ds;
+      if (focusPage) {
+        const d = Math.hypot(px[i] - focusPage[0], py[i] - focusPage[1]);
+        if (d < best) {
+          best = d;
+          focusS = i * ds;
+        }
       }
     }
-    const last = keys[keys.length - 1].scene;
-    return mix(last, last, 0, out);
   }
 
-  const cur = clone(SCENES.hero);
-  const target = clone(SCENES.hero);
-  const view = clone(SCENES.hero);
+  /* ---------- per frame: resample the stretch around the viewport ---------- */
   const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
-  let speed = 0;
-  let lastScroll = window.scrollY;
-  let reveal = 0;
-  let revealTarget = 0;
-  let lineScale = 1;
+  let visible = false;
+
+  function updateWindow() {
+    const scroll = window.scrollY;
+    const y0 = scroll - H * 0.45;
+    const y1 = scroll + H * 1.45;
+    let i0 = -1;
+    let i1 = -1;
+    for (let i = 0; i < N; i++) {
+      const y = py[i];
+      if (y >= y0 && y <= y1) {
+        if (i0 < 0) i0 = i;
+        i1 = i;
+      }
+    }
+    visible = i0 >= 0 && i1 > i0;
+    river.forEach((o) => (o.visible = visible));
+    if (!visible) return;
+    const s0 = Math.max(0, i0 - 2) * ds;
+    const s1 = Math.min(N - 1, i1 + 2) * ds;
+    range.s0.value = s0;
+    range.s1.value = s1;
+
+    const ox = mouse.x * W * 0.012;
+    const oy = mouse.y * H * 0.008;
+    for (let k = 0; k < K; k++) {
+      const s = s0 + ((s1 - s0) * k) / (K - 1);
+      const f = s / ds;
+      const i = Math.min(N - 2, Math.floor(f));
+      const a = f - i;
+      const j = i + 1;
+      const lerp = (arr: Float32Array) => arr[i] + (arr[j] - arr[i]) * a;
+      const nx = -lerp(ty);
+      const ny = lerp(tx);
+      let o = k * 4;
+      spineData[o] = (lerp(px) + ox) * dpr;
+      spineData[o + 1] = (lerp(py) - scroll + oy) * dpr;
+      spineData[o + 2] = nx;
+      spineData[o + 3] = ny;
+      o += K * 4;
+      spineData[o] = lerp(rad) * dpr;
+      spineData[o + 1] = s;
+      spineData[o + 2] = lerp(glo);
+      spineData[o + 3] = lerp(gai);
+      o += K * 4;
+      spineData[o] = lerp(fla);
+    }
+    spineTex.needsUpdate = true;
+  }
+
+  let reveal = 0; // css px of river grown in
+  let revealEnd = 0;
+  let revealing = false;
+
+  function updateUniforms() {
+    common.uReveal.value = reveal;
+    starMat.uniforms.uScroll.value = window.scrollY / Math.max(1, H);
+    if (focusPage && visible) {
+      const fy = focusPage[1] - window.scrollY;
+      focalMat.uniforms.uFocus.value.set((focusPage[0] + mouse.x * W * 0.012) * dpr, (fy + mouse.y * H * 0.008) * dpr);
+      // the glow fades in once the river has reached it
+      const reached = Math.min(1, Math.max(0, (reveal - focusS) / 500));
+      focalMat.uniforms.uGlow.value = reached * (common.uCalm.value < 1 ? 0.65 : 1);
+    } else {
+      focalMat.uniforms.uGlow.value = 0;
+    }
+  }
 
   function resize() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
     renderer.setPixelRatio(dpr);
-    renderer.setSize(w, h, false);
+    renderer.setSize(window.innerWidth, window.innerHeight, false);
     renderer.getDrawingBufferSize(bufferSize);
     common.uRes.value.copy(bufferSize);
     common.uDpr.value = dpr;
-    // portrait screens put the bundle behind body copy: keep it calmer there
-    common.uCalm.value = w < h ? 0.62 : 1;
+    // portrait screens put the river behind body copy: keep it calmer there
+    common.uCalm.value = window.innerWidth < window.innerHeight ? 0.62 : 1;
   }
 
-  function bezPoint(sc: Scene, t: number) {
-    const it = 1 - t;
-    const a = it * it * it;
-    const b = 3 * it * it * t;
-    const c = 3 * it * t * t;
-    const d = t * t * t;
-    return [
-      a * sc.p[0][0] + b * sc.p[1][0] + c * sc.p[2][0] + d * sc.p[3][0],
-      a * sc.p[0][1] + b * sc.p[1][1] + c * sc.p[2][1] + d * sc.p[3][1],
-    ];
-  }
-
-  function applyView() {
-    for (let i = 0; i < 4; i++) {
-      const w = i === 1 || i === 2 ? 0.035 : 0.012;
-      view.p[i][0] = cur.p[i][0] + mouse.x * w;
-      view.p[i][1] = cur.p[i][1] + mouse.y * w;
-    }
-    view.waist = cur.waist;
-    view.rad[0] = cur.rad[0];
-    view.rad[1] = cur.rad[1] * (1 + speed * 0.8);
-    view.rad[2] = cur.rad[2] * (1 + speed * 0.12);
-    view.twist = cur.twist + speed * 1.5;
-    view.flat = cur.flat;
-    view.glow = cur.glow * (1 + speed * 0.25);
-    view.gain = cur.gain * (1 + speed * 0.18);
-
-    common.uP0.value.set(view.p[0][0], view.p[0][1]);
-    common.uP1.value.set(view.p[1][0], view.p[1][1]);
-    common.uP2.value.set(view.p[2][0], view.p[2][1]);
-    common.uP3.value.set(view.p[3][0], view.p[3][1]);
-    common.uWaist.value = view.waist;
-    common.uRad.value.set(view.rad[0], view.rad[1], view.rad[2]);
-    common.uTwist.value = view.twist;
-    common.uFlat.value = view.flat;
-    common.uReveal.value = reveal;
-    hazeMat.uniforms.uGain.value = 0.016 * view.gain;
-    glowMat.uniforms.uGain.value = 0.072 * view.gain;
-    coreMat.uniforms.uGain.value = 0.42 * view.gain;
-
-    const f = bezPoint(view, view.waist);
-    focalMat.uniforms.uFocus.value.set(f[0] * bufferSize.x, f[1] * bufferSize.y);
-    focalMat.uniforms.uGlow.value = view.glow * (common.uCalm.value < 1 ? 0.65 : 1) * Math.max(0, Math.min(1, (reveal - 0.55) / 0.45));
-    starMat.uniforms.uScroll.value = window.scrollY / Math.max(1, window.innerHeight);
-  }
-
-  function render() {
+  function draw() {
+    updateWindow();
+    updateUniforms();
     renderer.render(scene3, camera);
   }
 
@@ -560,30 +652,27 @@ export function createRibbons(THREE: Three, canvas: HTMLCanvasElement): Ribbons 
   let lastNow = 0;
   let sampled = 0;
   let slow = 0;
+  let lineScale = 1;
+  let compiled = false;
 
   function frame(now: number) {
     raf = requestAnimationFrame(frame);
     const rawDt = lastNow ? Math.min(0.25, (now - lastNow) / 1000) : 0.016;
-    const dt = Math.min(0.05, rawDt);
+    const dt = Math.min(0.1, rawDt);
     lastNow = now;
-
-    const y = window.scrollY;
-    const vel = Math.abs(y - lastScroll) / Math.max(dt, 0.001);
-    lastScroll = y;
-    const st = Math.min(vel / 2200, 1.4);
-    speed += (st - speed) * (1 - Math.exp(-dt * (st > speed ? 6 : 2.2)));
-    common.uTime.value += dt * (1 + speed * 2.2);
-
-    sceneAt(y, target);
-    mix(cur, target, 1 - Math.exp(-rawDt * 4.2), cur);
-    if (reveal < revealTarget) reveal = Math.min(revealTarget, reveal + rawDt / 1.5);
-
+    common.uTime.value += dt;
+    if (revealing) {
+      // the river runs in from its source in about a second and a half (wall time)
+      reveal += revealEnd * (rawDt / 1.5);
+      if (reveal > revealEnd) {
+        revealing = false;
+        reveal = 1e7;
+      }
+    }
     const mk = 1 - Math.exp(-dt * 2.5);
     mouse.x += (mouse.tx - mouse.x) * mk;
     mouse.y += (mouse.ty - mouse.y) * mk;
-
-    applyView();
-    render();
+    draw();
 
     // adaptive quality: step down when the GPU struggles
     if (sampled < 420) {
@@ -604,7 +693,6 @@ export function createRibbons(THREE: Three, canvas: HTMLCanvasElement): Ribbons 
     }
   }
 
-  let compiled = false;
   function start() {
     if (!compiled || running || reduceMotion || document.hidden) return;
     running = true;
@@ -628,10 +716,7 @@ export function createRibbons(THREE: Three, canvas: HTMLCanvasElement): Ribbons 
     lastH = h;
     resize();
     measure();
-    if (!running) {
-      applyView();
-      render();
-    }
+    if (!running) draw();
   };
   const onPointer = (e: PointerEvent) => {
     if (e.pointerType && e.pointerType !== 'mouse') return;
@@ -640,7 +725,10 @@ export function createRibbons(THREE: Three, canvas: HTMLCanvasElement): Ribbons 
   };
   const onVisibility = () => (document.hidden ? stop() : start());
   const startReveal = () => {
-    revealTarget = 1;
+    if (reveal > 0 || revealing) return;
+    // grow down to whatever is on screen (the page may open mid-way)
+    revealEnd = Math.max(firstWindowEnd, range.s1.value) + 600;
+    revealing = true;
   };
   let pendingStill = false;
   const onScrollStill = () => {
@@ -648,9 +736,7 @@ export function createRibbons(THREE: Three, canvas: HTMLCanvasElement): Ribbons 
     pendingStill = true;
     requestAnimationFrame(() => {
       pendingStill = false;
-      sceneAt(window.scrollY, cur);
-      applyView();
-      render();
+      draw();
     });
   };
   const onLost = (e: Event) => {
@@ -658,11 +744,19 @@ export function createRibbons(THREE: Three, canvas: HTMLCanvasElement): Ribbons 
     stop();
     canvas.dispatchEvent(new CustomEvent('ribbons:lost', { bubbles: true }));
   };
+  let measureQueued = 0;
+  const queueMeasure = () => {
+    cancelAnimationFrame(measureQueued);
+    measureQueued = requestAnimationFrame(() => {
+      measure();
+      if (!running) draw();
+    });
+  };
 
-  const ro = new ResizeObserver(() => measure());
+  const ro = new ResizeObserver(queueMeasure);
   ro.observe(document.body);
   window.addEventListener('resize', onResize);
-  window.addEventListener('load', measure);
+  window.addEventListener('load', queueMeasure);
   document.addEventListener('visibilitychange', onVisibility);
   window.addEventListener('relay:ribbons', startReveal);
   canvas.addEventListener('webglcontextlost', onLost);
@@ -670,15 +764,15 @@ export function createRibbons(THREE: Three, canvas: HTMLCanvasElement): Ribbons 
 
   resize();
   measure();
-  sceneAt(window.scrollY, cur);
-  if (document.documentElement.classList.contains('intro-done')) revealTarget = 1;
+  if (document.documentElement.classList.contains('intro-done')) reveal = 1e7;
   const fallbackTimer = window.setTimeout(startReveal, 6000);
+  updateWindow();
 
   let disposed = false;
   // compile off the main thread where the browser can (KHR_parallel_shader_compile),
   // so the first frame does not stall the intro
   const parallel = renderer.extensions.has('KHR_parallel_shader_compile');
-  const compiled$ = parallel
+  const compiledP = parallel
     ? renderer.compileAsync(scene3, camera).catch(() => undefined)
     : new Promise<void>((resolve) =>
         // let the lime intro paint first, then compile synchronously behind it
@@ -687,29 +781,28 @@ export function createRibbons(THREE: Three, canvas: HTMLCanvasElement): Ribbons 
           resolve();
         }, 60),
       );
-  const ready = compiled$.then(() => {
-      if (disposed) return;
-      if (reduceMotion) {
-        common.uTime.value = 2.5;
-        reveal = revealTarget = 1;
-        applyView();
-        render();
-        window.addEventListener('scroll', onScrollStill, { passive: true });
-      } else {
-        compiled = true;
-        applyView();
-        render();
-        start();
-      }
-    });
+  const ready = compiledP.then(() => {
+    if (disposed) return;
+    if (reduceMotion) {
+      common.uTime.value = 2.5;
+      reveal = 1e7;
+      draw();
+      window.addEventListener('scroll', onScrollStill, { passive: true });
+    } else {
+      compiled = true;
+      draw();
+      start();
+    }
+  });
 
   const dispose = () => {
     disposed = true;
     stop();
+    cancelAnimationFrame(measureQueued);
     window.clearTimeout(fallbackTimer);
     ro.disconnect();
     window.removeEventListener('resize', onResize);
-    window.removeEventListener('load', measure);
+    window.removeEventListener('load', queueMeasure);
     document.removeEventListener('visibilitychange', onVisibility);
     window.removeEventListener('relay:ribbons', startReveal);
     window.removeEventListener('pointermove', onPointer);
@@ -717,6 +810,7 @@ export function createRibbons(THREE: Three, canvas: HTMLCanvasElement): Ribbons 
     canvas.removeEventListener('webglcontextlost', onLost);
     [fibers, haze, dustGeo, bokehGeo, starGeo, glowGeo].forEach((g) => g.dispose());
     [hazeMat, glowMat, coreMat, dustMat, bokehMat, starMat, focalMat].forEach((m) => m.dispose());
+    spineTex.dispose();
     renderer.dispose();
   };
 
