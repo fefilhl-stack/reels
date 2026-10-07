@@ -1,7 +1,13 @@
-# Relay — главная страница
+# Relay и ТУРБО — главные страницы
 
 Лендинг по мотивам ролика: тёмная тема, лаймовый акцент, светящиеся волокна на фоне,
 стеклянные карточки и секции, которые оживают при прокрутке.
+
+В проекте две страницы на одном движке:
+
+- `/` — **Relay**, исходный лендинг из ролика (английский);
+- `/turbo/` — **ТУРБО**, главная для [turbosolution.ru](https://turbosolution.ru/) на русском:
+  тот же дизайн и анимации, контент адаптирован под платформу ТУРБО X и её решения.
 
 Стек: **Next.js 16** (App Router, TypeScript), **three.js** для фона и изометрических
 столбиков, **Lenis** для плавной прокрутки. Сайт собирается в статику: на выходе обычные
@@ -28,11 +34,12 @@ npm run preview    # посмотреть собранную версию: http:
 npm run build:desktop
 ```
 
-Создаёт папку `desktop-build/Relay/` с одним файлом `index.html`, в который встроено всё:
-скрипты, стили, шрифты, иконка. Папку можно скопировать куда угодно, сайт открывается
-двойным кликом по `index.html`, без сервера и без интернета. Это та же страница, только
-собранная без сервера Next.js (точка входа — `desktop/main.tsx`, скрипт —
-`scripts/build-desktop.mjs`).
+Создаёт папки `desktop-build/Relay/` и `desktop-build/Turbo/`, в каждой один файл
+`index.html`, в который встроено всё: скрипты, стили, шрифты, иконка. Папку можно
+скопировать куда угодно, сайт открывается двойным кликом по `index.html`, без сервера и
+без интернета. Это те же страницы, только собранные без сервера Next.js (точки входа —
+`desktop/main.tsx` и `desktop/turbo.tsx`, скрипт — `scripts/build-desktop.mjs`).
+Собрать только одну: `npm run build:desktop -- turbo`.
 
 ## Публикация
 
@@ -70,6 +77,19 @@ npm run build:desktop
 10. **Финал и подвал.** Карточка бренда, лаймовая форма «Pick the task you hate most»
     с проверкой email, статусы и ссылки.
 
+## Страница ТУРБО
+
+Те же блоки, что у Relay, с русским контентом: продукты (ТУРБО X, ERP, Бюджетирование,
+ТОРО, Имущественный комплекс, Отель, WMS), платформа, надёжность, рабочий день, клиенты
+(ВТБ, АШАН, Райффайзенбанк), форматы внедрения вместо тарифов (цен на сайте нет, ползунок
+подбирает формат по числу пользователей), форма «Запросить демо», контакты и ссылки на
+разделы turbosolution.ru.
+
+Факты о компании взяты с turbosolution.ru. Цифры в демо-карточках (миллисекунды, суммы,
+проценты, имена в чате) иллюстративные, как в макете Relay. Логотип ТУРБО не копировался:
+знак в плитке — простой «Т» с линиями скорости (`TurboMark` в `components/ui/Icons.tsx`),
+его легко заменить настоящим. Курсив набран Playfair Display: в Instrument Serif нет кириллицы.
+
 Под секциями 4–8 фон размыт: это один фиксированный слой с `backdrop-filter`, обрезанный
 по видимой части этих секций. В первом экране, интеграциях и ценах волокна резкие, как в ролике.
 
@@ -84,28 +104,33 @@ npm run build:desktop
 
 | Что | Где |
 | --- | --- |
-| Тексты секций | `components/sections/*.tsx` (по файлу на секцию) |
+| Тексты секций Relay | `components/sections/*.tsx` (по файлу на секцию) |
+| Тексты страницы ТУРБО | `components/turbo/*.tsx` и `components/turbo/content.ts` |
 | Цвета, шрифты, общие стили | `app/globals.css`, переменные в `:root` (`--lime`, `--bg`, …) |
 | Стили конкретной секции | соседний `*.module.css` |
 | Русло «реки» из волокон по секциям, её ширина и цвет | `lib/ribbons.ts`, объект `RIVER` и функция `palette` в шейдере |
 | Столбики «runs per weekday» | `lib/isoBars.ts` и `components/sections/IsoBarsCard.tsx` (`VALUES`) |
 | Заставка | `components/Intro.tsx` |
 | Тарифы и логика ползунка | `components/sections/Pricing.tsx` (`PLANS`, `MIN`, `MAX`) |
-| Логотип | `components/ui/Icons.tsx` (`Chevrons`) и `app/icon.svg` |
-| Заголовок и описание страницы | `app/layout.tsx` (`metadata`) |
+| Логотип | `components/ui/Icons.tsx` (`Chevrons`, `TurboMark`) и `icon.svg` рядом с layout |
+| Заголовок и описание страницы | `app/(relay)/layout.tsx` и `app/(turbo)/turbo/layout.tsx` (`metadata`) |
 
-Форма email сейчас только показывает подтверждение. Чтобы письма куда-то уходили,
-подключите обработчик в `components/sections/FinalCta.tsx` (функция `submit`).
+Формы email сейчас только показывают подтверждение. Чтобы письма куда-то уходили,
+подключите обработчик в `components/sections/FinalCta.tsx` и `components/turbo/Demo.tsx`
+(функция `submit`).
 
 ## Структура
 
 ```
 app/
-  layout.tsx, page.tsx, globals.css, icon.svg
-  fonts/                 Instrument Serif Italic (SIL OFL)
+  (relay)/               layout, page и иконка Relay (адрес /)
+  (turbo)/turbo/         layout, page и иконка ТУРБО (адрес /turbo/)
+  globals.css, page.module.css
+  fonts/                 Instrument Serif Italic, Playfair Display Italic (SIL OFL)
 components/
   Intro, Header, Ribbons, FrostLayer, Cursor, SmoothScroll, RevealObserver
-  sections/              по компоненту на секцию + их стили
+  sections/              по компоненту на секцию + их стили (Relay)
+  turbo/                 секции ТУРБО на тех же стилях + content.ts
   ui/                    Typewriter, RollingNumber, SectionHead, Avatar, Icons
 lib/
   ribbons.ts             фон на three.js: «река» из волокон, пыль, боке
@@ -114,4 +139,5 @@ lib/
   hooks.ts, motion.ts    видимость, счётчики, плавности
 ```
 
-Шрифты: Geist и Geist Mono из пакета `geist`, Instrument Serif лежит в `app/fonts`.
+Шрифты: Geist и Geist Mono из пакета `geist`, Instrument Serif и Playfair Display лежат
+в `app/fonts`.

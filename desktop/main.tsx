@@ -3,6 +3,6 @@
 import { createRoot } from 'react-dom/client';
 import '../app/globals.css';
 import './fonts.css';
-import Page from '../app/page';
+import Page from '../app/(relay)/page';
 
 createRoot(document.getElementById('root')!).render(<Page />);

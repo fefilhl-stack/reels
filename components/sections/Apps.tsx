@@ -6,7 +6,7 @@ import { useInView } from '@/lib/hooks';
 import { prefersReducedMotion } from '@/lib/motion';
 import styles from './Apps.module.css';
 
-const APPS: [string, string][] = [
+const RELAY_APPS: [string, string][] = [
   ['SL', 'slack'],
   ['ST', 'stripe'],
   ['PG', 'postgres'],
@@ -17,7 +17,13 @@ const APPS: [string, string][] = [
 ];
 
 /** Row of connected apps; a lime pulse hops along the dotted line from one to the next. */
-export default function Apps() {
+type Props = { apps?: [code: string, name: string][]; label?: string; aria?: string };
+
+export default function Apps({
+  apps: APPS = RELAY_APPS,
+  label = 'connects to 240 apps, and to whatever you wrote yourself',
+  aria = 'Integrations',
+}: Props) {
   const listRef = useRef<HTMLOListElement>(null);
   const inView = useInView(listRef, { once: false, threshold: 0.2 });
   const [active, setActive] = useState(0);
@@ -26,13 +32,13 @@ export default function Apps() {
     if (!inView || prefersReducedMotion()) return;
     const id = window.setInterval(() => setActive((a) => (a + 1) % APPS.length), 1700);
     return () => window.clearInterval(id);
-  }, [inView]);
+  }, [inView, APPS.length]);
 
   return (
-    <section className={styles.apps} data-scene="arc" aria-label="Integrations">
+    <section className={styles.apps} data-scene="arc" aria-label={aria}>
       <div className="container">
         <p className={`mono ${styles.label}`}>
-          <Typewriter text="connects to 240 apps, and to whatever you wrote yourself" speed={30} />
+          <Typewriter text={label} speed={30} />
         </p>
         <ol ref={listRef} className={styles.row} style={{ '--n': APPS.length } as CSSProperties}>
           {APPS.map(([code, name], i) => (

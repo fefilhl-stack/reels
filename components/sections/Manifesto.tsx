@@ -1,15 +1,24 @@
 'use client';
 
 import { useEffect, useRef, type CSSProperties } from 'react';
-import { Chevrons } from '../ui/Icons';
+import { MARKS, type MarkName } from '../ui/Icons';
 import { clamp, easeInOut, lerp, progress } from '@/lib/motion';
 import styles from './Manifesto.module.css';
 
-const LABEL = '[ what we are actually selling ]';
-const LINE_1 = ['The', 'best', 'workflow', 'is', 'the', 'one'];
-const LINE_2_EM = ['nobody', 'mentions'];
-const LINE_2 = ['in', 'standup.'];
-const WORDS = LINE_1.length + LINE_2_EM.length + LINE_2.length;
+export type ManifestoContent = {
+  label: string;
+  /** first line, then the italic start of the second line, then its rest */
+  lines: [string, string, string];
+  aria: string;
+  mark: MarkName;
+};
+
+const RELAY: ManifestoContent = {
+  label: '[ what we are actually selling ]',
+  lines: ['The best workflow is the one', 'nobody mentions', 'in standup.'],
+  aria: 'What we believe',
+  mark: 'relay',
+};
 
 type Box = { l: number; t: number; r: number; b: number; rad: number; tileY: number };
 
@@ -17,7 +26,11 @@ type Box = { l: number; t: number; r: number; b: number; rad: number; tileY: num
  * Sticky scroll scene: a lime tile rises, opens into a full-width band while
  * the sentence writes itself, then folds back into a lime ring around the logo.
  */
-export default function Manifesto() {
+export default function Manifesto({ content = RELAY }: { content?: ManifestoContent }) {
+  const LABEL = content.label;
+  const [LINE_1, LINE_2_EM, LINE_2] = content.lines.map((l) => l.split(' '));
+  const WORDS = LINE_1.length + LINE_2_EM.length + LINE_2.length;
+  const Mark = MARKS[content.mark];
   const secRef = useRef<HTMLElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const copyRef = useRef<HTMLDivElement>(null);
@@ -112,7 +125,7 @@ export default function Manifesto() {
       window.removeEventListener('scroll', request);
       window.removeEventListener('resize', request);
     };
-  }, []);
+  }, [LABEL, WORDS]);
 
   let w = 0;
   const word = (text: string) => (
@@ -122,7 +135,7 @@ export default function Manifesto() {
   );
 
   return (
-    <section ref={secRef} className={styles.manifesto} data-scene="low" aria-label="What we believe">
+    <section ref={secRef} className={styles.manifesto} data-scene="low" aria-label={content.aria}>
       <div className={styles.stage}>
         <div ref={panelRef} className={styles.panel}>
           <div ref={copyRef} className={styles.copy}>
@@ -130,7 +143,7 @@ export default function Manifesto() {
               <span ref={labelRef}>{LABEL}</span>
             </p>
             <p className={styles.text}>
-              <span className="sr-only">The best workflow is the one nobody mentions in standup.</span>
+              <span className="sr-only">{content.lines.join(' ')}</span>
               <span aria-hidden="true" className={styles.line}>
                 {LINE_1.map((t) => word(t))}
               </span>
@@ -140,7 +153,7 @@ export default function Manifesto() {
             </p>
           </div>
           <div ref={tileRef} className={styles.tile} aria-hidden="true">
-            <Chevrons tone="onDark" />
+            <Mark tone="onDark" />
           </div>
         </div>
       </div>

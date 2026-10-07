@@ -1,6 +1,9 @@
-import type { SVGProps } from 'react';
+import type { JSX, SVGProps } from 'react';
 
 type P = SVGProps<SVGSVGElement>;
+
+/** A brand mark: drawn for a lime tile (`onLime`) or for a dark one (`onDark`). */
+export type Mark = (props: P & { tone?: 'onLime' | 'onDark' }) => JSX.Element;
 
 /** The Relay mark: two chevrons. `tone` picks the colors for lime or dark tiles. */
 export function Chevrons({ tone = 'onLime', ...props }: P & { tone?: 'onLime' | 'onDark' }) {
@@ -21,6 +24,30 @@ export function Chevrons({ tone = 'onLime', ...props }: P & { tone?: 'onLime' | 
     </svg>
   );
 }
+
+/** The ТУРБО mark: a slanted T with two speed lines. Same tones as `Chevrons`. */
+export function TurboMark({ tone = 'onLime', ...props }: P & { tone?: 'onLime' | 'onDark' }) {
+  const back = tone === 'onLime' ? '#4f6b14' : '#5e7c1b';
+  const front = tone === 'onLime' ? '#0b0f02' : 'url(#turbo-mark)';
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" {...props}>
+      {tone === 'onDark' && (
+        <defs>
+          <linearGradient id="turbo-mark" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="#e3ff9c" />
+            <stop offset="1" stopColor="#a8db2f" />
+          </linearGradient>
+        </defs>
+      )}
+      <path d="M3.2 11h3.6M4.6 14.6h3" stroke={back} strokeWidth="2.4" strokeLinecap="round" />
+      <path d="M8.4 6.4h11.2M14.4 6.4 12 18" stroke={front} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Brand marks by name, so server components can pick one for client ones. */
+export const MARKS = { relay: Chevrons, turbo: TurboMark } satisfies Record<string, Mark>;
+export type MarkName = keyof typeof MARKS;
 
 export const IconPlay = (p: P) => (
   <svg viewBox="0 0 12 12" aria-hidden="true" {...p}>

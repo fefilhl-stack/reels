@@ -1,17 +1,41 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Chevrons } from './ui/Icons';
+import { MARKS, type MarkName } from './ui/Icons';
 import styles from './Header.module.css';
 
-const LINKS = [
-  { href: '#product', label: 'Product' },
-  { href: '#how', label: 'How it works' },
-  { href: '#customers', label: 'Customers' },
-  { href: '#pricing', label: 'Pricing' },
-];
+type Link = { href: string; label: string };
 
-export default function Header() {
+export type HeaderContent = {
+  brand: string;
+  brandLabel: string;
+  mark: MarkName;
+  links: Link[];
+  cta: Link;
+  status: string;
+  navLabel: string;
+  menu: [open: string, close: string];
+};
+
+const RELAY: HeaderContent = {
+  brand: 'Relay',
+  brandLabel: 'Relay, back to top',
+  mark: 'relay',
+  links: [
+    { href: '#product', label: 'Product' },
+    { href: '#how', label: 'How it works' },
+    { href: '#customers', label: 'Customers' },
+    { href: '#pricing', label: 'Pricing' },
+  ],
+  cta: { href: '#start', label: 'Start free' },
+  status: 'all systems normal',
+  navLabel: 'Primary',
+  menu: ['Open menu', 'Close menu'],
+};
+
+export default function Header({ content = RELAY }: { content?: HeaderContent }) {
+  const { brand, brandLabel, links: LINKS, cta, status, navLabel, menu } = content;
+  const BrandMark = MARKS[content.mark];
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState('');
   const [scrolled, setScrolled] = useState(false);
@@ -41,7 +65,7 @@ export default function Header() {
       window.removeEventListener('scroll', request);
       window.removeEventListener('resize', request);
     };
-  }, []);
+  }, [LINKS]);
 
   useEffect(() => {
     if (!open) return;
@@ -53,14 +77,14 @@ export default function Header() {
   return (
     <header className={`${styles.header} ${scrolled ? styles.scrolled : ''}`}>
       <div className={styles.inner}>
-        <a className={styles.brand} href="#top" aria-label="Relay, back to top">
+        <a className={styles.brand} href="#top" aria-label={brandLabel}>
           <span className={styles.mark} data-brand-mark>
-            <Chevrons tone="onLime" />
+            <BrandMark tone="onLime" />
           </span>
-          <span>Relay</span>
+          <span>{brand}</span>
         </a>
 
-        <nav id="site-nav" className={`${styles.nav} ${open ? styles.open : ''}`} aria-label="Primary">
+        <nav id="site-nav" className={`${styles.nav} ${open ? styles.open : ''}`} aria-label={navLabel}>
           {LINKS.map((l) => (
             <a
               key={l.href}
@@ -72,25 +96,25 @@ export default function Header() {
               {l.label}
             </a>
           ))}
-          <a className={`btn btn-lime ${styles.navCta}`} href="#start" onClick={() => setOpen(false)}>
-            Start free
+          <a className={`btn btn-lime ${styles.navCta}`} href={cta.href} onClick={() => setOpen(false)}>
+            {cta.label}
           </a>
         </nav>
 
         <div className={styles.actions}>
           <span className={styles.status}>
             <i className="status-dot" />
-            all systems normal
+            {status}
           </span>
-          <a className={`btn btn-lime btn-sm ${styles.cta}`} href="#start">
-            Start free
+          <a className={`btn btn-lime btn-sm ${styles.cta}`} href={cta.href}>
+            {cta.label}
           </a>
           <button
             type="button"
             className={styles.toggle}
             aria-controls="site-nav"
             aria-expanded={open}
-            aria-label={open ? 'Close menu' : 'Open menu'}
+            aria-label={open ? menu[1] : menu[0]}
             onClick={() => setOpen((v) => !v)}
           >
             <span />

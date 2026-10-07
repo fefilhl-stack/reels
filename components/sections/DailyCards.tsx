@@ -14,6 +14,20 @@ const d = (s: number) => ({ '--d': `${s}s` }) as CSSProperties;
 
 const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const ROWS = 8;
+
+export type DailyContent = {
+  week: { label: string; chip: string; days: string[] };
+  ring: { label: string; value: number; caption: string };
+  people: { label: string; unit: string; caption: string };
+  waves: { label: string; recovered: string; failed: string };
+};
+
+export const RELAY_DAILY: DailyContent = {
+  week: { label: 'this week, run by run', chip: 'next run in 12 min', days: DAYS },
+  ring: { label: 'hands off', value: 81, caption: 'of steps finish without a person in the loop' },
+  people: { label: 'waiting on people', unit: 'approvals', caption: 'Longest wait: 26 minutes, in #finance' },
+  waves: { label: 'failures and recoveries', recovered: 'recovered', failed: 'failed' },
+};
 const TODAY = 1;
 const HOT_ROW = 4;
 const rnd = seeded(41);
@@ -21,18 +35,18 @@ const WEEK = DAYS.map((_, c) =>
   Array.from({ length: ROWS }, () => (c >= 5 ? 0.035 + rnd() * 0.03 : 0.13 + rnd() * 0.2)),
 );
 
-export function WeekCard() {
+export function WeekCard({ c = RELAY_DAILY.week }: { c?: DailyContent['week'] }) {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { threshold: 0.25 });
   return (
     <article ref={ref} className={`card ${styles.card} ${styles.week}`} data-reveal>
       <div className={styles.cardTop}>
         <p className="card-label">
-          <Typewriter text="this week, run by run" />
+          <Typewriter text={c.label} />
         </p>
         <span className={styles.chip}>
           <IconClock />
-          <Typewriter text="next run in 12 min" delay={0.4} />
+          <Typewriter text={c.chip} delay={0.4} />
         </span>
       </div>
       <div className={`${styles.heat} ${inView ? styles.on : ''}`}>
@@ -42,13 +56,13 @@ export function WeekCard() {
           <span>13</span>
           <span>15</span>
         </div>
-        {DAYS.map((day, c) => (
-          <div key={day} className={`${styles.day} ${c === TODAY ? styles.today : ''}`} style={{ '--c': c } as CSSProperties}>
+        {c.days.map((day, col) => (
+          <div key={day} className={`${styles.day} ${col === TODAY ? styles.today : ''}`} style={{ '--c': col } as CSSProperties}>
             <div className={styles.cells}>
-              {WEEK[c].map((a, r) => (
+              {WEEK[col].map((a, r) => (
                 <i
                   key={r}
-                  className={c === TODAY && r === HOT_ROW ? styles.hotCell : undefined}
+                  className={col === TODAY && r === HOT_ROW ? styles.hotCell : undefined}
                   style={{ '--a': a, '--r': r } as CSSProperties}
                 />
               ))}
@@ -63,13 +77,13 @@ export function WeekCard() {
 
 /* ---------- hands off ring ---------- */
 
-export function RingCard() {
+export function RingCard({ c = RELAY_DAILY.ring }: { c?: DailyContent['ring'] }) {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { threshold: 0.3 });
-  const v = useCountUp(81, inView, 2.4);
+  const v = useCountUp(c.value, inView, 2.4);
   return (
     <article ref={ref} className={`card ${styles.card} ${styles.ringCard}`} data-reveal style={d(0.08)}>
-      <p className="card-label">hands off</p>
+      <p className="card-label">{c.label}</p>
       <div className={styles.ring}>
         <svg viewBox="0 0 140 140" aria-hidden="true">
           <circle className={styles.ringTrack} cx="70" cy="70" r="58" />
@@ -77,21 +91,21 @@ export function RingCard() {
         </svg>
         <b>{Math.round(v)}%</b>
       </div>
-      <p className={styles.caption}>of steps finish without a person in the loop</p>
+      <p className={styles.caption}>{c.caption}</p>
     </article>
   );
 }
 
 /* ---------- waiting on people ---------- */
 
-export function PeopleCard() {
+export function PeopleCard({ c = RELAY_DAILY.people }: { c?: DailyContent['people'] }) {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { threshold: 0.3 });
   const v = useCountUp(3, inView, 1.6);
   return (
     <article ref={ref} className={`card ${styles.card}`} data-reveal>
       <p className="card-label">
-        <Typewriter text="waiting on people" />
+        <Typewriter text={c.label} />
       </p>
       <div className={`${styles.faces} ${inView ? styles.on : ''}`}>
         {[0, 1, 2, 3, 4].map((i) => (
@@ -102,9 +116,9 @@ export function PeopleCard() {
       </div>
       <p className={styles.count}>
         <b>{Math.round(v)}</b>
-        <span>approvals</span>
+        <span>{c.unit}</span>
       </p>
-      <p className={styles.caption}>Longest wait: 26 minutes, in #finance</p>
+      <p className={styles.caption}>{c.caption}</p>
     </article>
   );
 }
@@ -121,11 +135,11 @@ function wave(width: number, height: number, amp: number, phase: number) {
   return pts.join(' ');
 }
 
-export function WavesCard() {
+export function WavesCard({ c = RELAY_DAILY.waves }: { c?: DailyContent['waves'] }) {
   return (
     <article className={`card ${styles.card}`} data-reveal style={d(0.08)}>
       <p className="card-label">
-        <Typewriter text="failures and recoveries" />
+        <Typewriter text={c.label} />
       </p>
       <div className={styles.waves} aria-hidden="true">
         <svg viewBox="0 0 960 120" preserveAspectRatio="none">
@@ -136,11 +150,11 @@ export function WavesCard() {
       <p className={styles.legend}>
         <span>
           <i className={styles.limeDot} />
-          recovered
+          {c.recovered}
         </span>
         <span>
           <i />
-          failed
+          {c.failed}
         </span>
       </p>
     </article>

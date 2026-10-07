@@ -9,19 +9,31 @@ import styles from './RunTimeline.module.css';
 
 type Step = { name: string; start: number; ms: number; play: number; wait?: string };
 
-// start / ms are in run milliseconds (axis 0..200); play is real seconds the step takes on screen
-const STEPS: Step[] = [
-  { name: 'read refund', start: 0, ms: 115, play: 1.5 },
-  { name: 'check amount', start: 118, ms: 3, play: 0.45 },
-  { name: 'branch, over 5000', start: 123, ms: 0, play: 0.35 },
-  { name: 'ask finance', start: 130, ms: 26, play: 0.6, wait: 'on Dana' },
-];
-const TOTAL = STEPS.reduce((s, x) => s + x.play, 0);
+export type TimelineContent = {
+  head: string;
+  /** unit after the timers and the last axis tick */
+  unit: string;
+  // start / ms are in run milliseconds (axis 0..200); play is real seconds the step takes on screen
+  steps: Step[];
+};
+
+const RELAY: TimelineContent = {
+  head: 'run',
+  unit: 'ms',
+  steps: [
+    { name: 'read refund', start: 0, ms: 115, play: 1.5 },
+    { name: 'check amount', start: 118, ms: 3, play: 0.45 },
+    { name: 'branch, over 5000', start: 123, ms: 0, play: 0.35 },
+    { name: 'ask finance', start: 130, ms: 26, play: 0.6, wait: 'on Dana' },
+  ],
+};
 const HOLD = 2.8;
 const AXIS = [0, 50, 100, 150, 200];
 
 /** A run replaying step by step: bars grow while their timers count up. */
-export default function RunTimeline() {
+export default function RunTimeline({ content = RELAY }: { content?: TimelineContent }) {
+  const { steps: STEPS, unit } = content;
+  const TOTAL = STEPS.reduce((s, x) => s + x.play, 0);
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: false, threshold: 0.3 });
   const [clock, setClock] = useState(TOTAL); // seconds into the replay; SSR shows the finished run
@@ -53,7 +65,7 @@ export default function RunTimeline() {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [inView]);
+  }, [inView, TOTAL]);
 
   let t0 = 0;
   const rows = STEPS.map((s) => {
@@ -66,7 +78,7 @@ export default function RunTimeline() {
   return (
     <div ref={ref} className={`card ${styles.card}`}>
       <div className={styles.head}>
-        run <RollingNumber value={String(run)} />
+        {content.head} <RollingNumber value={String(run)} />
       </div>
       <ul className={styles.rows}>
         {rows.map((r) => {
@@ -89,7 +101,7 @@ export default function RunTimeline() {
                   }}
                 />
               </span>
-              <span className={styles.value}>{r.wait ? (r.p > 0.3 ? r.wait : '') : `${ms} ms`}</span>
+              <span className={styles.value}>{r.wait ? (r.p > 0.3 ? r.wait : '') : `${ms} ${unit}`}</span>
             </li>
           );
         })}
@@ -99,7 +111,7 @@ export default function RunTimeline() {
         <span className={styles.ticks}>
           {AXIS.map((a) => (
             <span key={a} style={{ left: `${(a / 200) * 100}%` }}>
-              {a === 200 ? '200 ms' : a}
+              {a === 200 ? `200 ${unit}` : a}
             </span>
           ))}
         </span>

@@ -53,6 +53,14 @@
   font-family: var(--font-mono);
   font-size: 14px;
 }
+.about .badges a {
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.3s;
+}
+.about .badges a:hover {
+  color: var(--text);
+}
 
 .logo {
   display: inline-flex;

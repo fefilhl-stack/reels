@@ -1,0 +1,11 @@
+/* The Russian page sets its italics in Playfair Display (Instrument Serif has no Cyrillic). */
+@font-face {
+  font-family: 'Playfair Display';
+  src: url('../app/fonts/PlayfairDisplay-Italic.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+:root {
+  --font-serif: 'Playfair Display';
+}

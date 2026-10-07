@@ -9,14 +9,45 @@ const CARD_W = 700;
 const CARD_H = 610;
 
 type Run = { id: number; time: string; name: string; took: string };
+type Node = [title: string, sub: string];
 
-const FIRST_RUNS: Run[] = [
-  { id: 3, time: '09:41:02', name: 'refunds over 5000', took: '129 ms' },
-  { id: 2, time: '09:38:57', name: 'weekly export', took: '2.1 s' },
-  { id: 1, time: '09:31:14', name: 'invoice reminder', took: '410 ms' },
-];
-const NAMES = ['refunds over 5000', 'weekly export', 'invoice reminder', 'new signup to crm', 'trial ending nudge', 'payout reconcile'];
-const TOOK = ['129 ms', '96 ms', '2.1 s', '410 ms', '188 ms', '1.4 s', '74 ms'];
+export type FlowContent = {
+  name: string;
+  meta: string;
+  state: string;
+  aria: string;
+  nodes: { start: Node; cond: Node; log: Node; ask: Node };
+  /** labels on the two edges leaving the first node */
+  branches: [string, string];
+  wait: string;
+  runsLabel: string;
+  firstRuns: Run[];
+  names: string[];
+  took: string[];
+};
+
+const RELAY: FlowContent = {
+  name: 'Refunds over 5000',
+  meta: '3 steps / 1 branch',
+  state: 'running',
+  aria: 'Example workflow: refunds over 5000, three steps and one branch, currently running',
+  nodes: {
+    start: ['Refund created', 'stripe'],
+    cond: ['Amount over 5000', 'condition'],
+    log: ['Log to warehouse', 'postgres'],
+    ask: ['Ask finance', 'waiting on a yes'],
+  },
+  branches: ['true', 'else'],
+  wait: '26 min',
+  runsLabel: 'last runs',
+  firstRuns: [
+    { id: 3, time: '09:41:02', name: 'refunds over 5000', took: '129 ms' },
+    { id: 2, time: '09:38:57', name: 'weekly export', took: '2.1 s' },
+    { id: 1, time: '09:31:14', name: 'invoice reminder', took: '410 ms' },
+  ],
+  names: ['refunds over 5000', 'weekly export', 'invoice reminder', 'new signup to crm', 'trial ending nudge', 'payout reconcile'],
+  took: ['129 ms', '96 ms', '2.1 s', '410 ms', '188 ms', '1.4 s', '74 ms'],
+};
 
 // edges: [from, to, lit, pulse delay]
 const EDGES: [string, string, boolean, number][] = [
@@ -29,13 +60,14 @@ const EDGES: [string, string, boolean, number][] = [
 const useIsoLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 
 /** The tilted workflow card in the hero. Edges are measured from the nodes, so they survive any scale. */
-export default function FlowCard() {
+export default function FlowCard({ content = RELAY }: { content?: FlowContent }) {
+  const { nodes, branches, names: NAMES, took: TOOK } = content;
   const wrapRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState<{ d: string; lit: boolean; delay: number; a: [number, number]; b: [number, number] }[]>([]);
   const [labels, setLabels] = useState<{ x: number; y: number; text: string }[]>([]);
-  const [runs, setRuns] = useState<Run[]>(FIRST_RUNS);
+  const [runs, setRuns] = useState<Run[]>(content.firstRuns);
 
   const measure = useCallback(() => {
     const canvas = canvasRef.current;
@@ -66,12 +98,12 @@ export default function FlowCard() {
         const it = 1 - t;
         const x = it * it * it * x1 + 3 * it * it * t * (x1 + dx) + 3 * it * t * t * (x2 - dx) + t * t * t * x2;
         const y = it * it * it * y1 + 3 * it * it * t * y1 + 3 * it * t * t * y2 + t * t * t * y2;
-        lab.push({ x, y, text: i === 0 ? 'true' : 'else' });
+        lab.push({ x, y, text: branches[i] });
       }
     });
     setEdges(out);
     setLabels(lab);
-  }, []);
+  }, [branches]);
 
   // scale + layout mode, then measure edges
   useIsoLayoutEffect(() => {
@@ -151,17 +183,17 @@ export default function FlowCard() {
       window.clearInterval(id);
       io.disconnect();
     };
-  }, []);
+  }, [NAMES, TOOK]);
 
   return (
     <div ref={wrapRef} className={styles.wrap} data-mode="tilt">
       <div className={styles.stage}>
-        <div ref={cardRef} className={styles.card} role="img" aria-label="Example workflow: refunds over 5000, three steps and one branch, currently running">
+        <div ref={cardRef} className={styles.card} role="img" aria-label={content.aria}>
           <div className={styles.head}>
-            <span className={styles.name}>Refunds over 5000</span>
+            <span className={styles.name}>{content.name}</span>
             <span className={styles.sep} />
-            <span className={styles.meta}>3 steps / 1 branch</span>
-            <span className={styles.state}>running</span>
+            <span className={styles.meta}>{content.meta}</span>
+            <span className={styles.state}>{content.state}</span>
           </div>
 
           <div ref={canvasRef} className={styles.canvas}>
@@ -198,29 +230,29 @@ export default function FlowCard() {
             ))}
 
             <div className={`${styles.node} ${styles.start}`} data-node="start" data-intro-target>
-              <b>Refund created</b>
-              <small>stripe</small>
+              <b>{nodes.start[0]}</b>
+              <small>{nodes.start[1]}</small>
             </div>
             <div className={`${styles.node} ${styles.cond}`} data-node="cond">
-              <b>Amount over 5000</b>
-              <small>condition</small>
+              <b>{nodes.cond[0]}</b>
+              <small>{nodes.cond[1]}</small>
             </div>
             <div className={`${styles.node} ${styles.log}`} data-node="log">
-              <b>Log to warehouse</b>
-              <small>postgres</small>
+              <b>{nodes.log[0]}</b>
+              <small>{nodes.log[1]}</small>
             </div>
             <div className={`${styles.node} ${styles.ask}`} data-node="ask">
-              <b>Ask finance</b>
-              <small>waiting on a yes</small>
+              <b>{nodes.ask[0]}</b>
+              <small>{nodes.ask[1]}</small>
             </div>
             <span className={styles.wait}>
               <i />
-              26 min
+              {content.wait}
             </span>
           </div>
 
           <div className={styles.runs}>
-            <span className={styles.runsLabel}>last runs</span>
+            <span className={styles.runsLabel}>{content.runsLabel}</span>
             <ol>
               {runs.map((r, i) => (
                 <li key={r.id} className={i === 0 && r.id > 3 ? styles.fresh : undefined}>

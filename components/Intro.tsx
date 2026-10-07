@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Chevrons } from './ui/Icons';
+import { MARKS, type MarkName } from './ui/Icons';
 import { INTRO_DONE_EVENT, RIBBONS_EVENT, RIBBONS_READY_EVENT, clamp, easeInOut, easeOut, lerp, markReady, progress } from '@/lib/motion';
 import styles from './Intro.module.css';
 
@@ -16,7 +16,8 @@ const RING = 13; // lime border left around the tile at the end
  * (or the header logo when that node is off screen) and becomes a thin lime
  * ring around the tile, then fades into the node.
  */
-export default function Intro() {
+export default function Intro({ mark = 'relay' }: { mark?: MarkName }) {
+  const BrandMark = MARKS[mark];
   const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const tileRef = useRef<HTMLDivElement>(null);
@@ -174,7 +175,7 @@ export default function Intro() {
       <div className={styles.backdrop} />
       <div ref={panelRef} className={styles.panel} />
       <div ref={tileRef} className={styles.tile}>
-        <Chevrons tone="onDark" />
+        <BrandMark tone="onDark" />
       </div>
     </div>
   );

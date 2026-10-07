@@ -5,12 +5,21 @@ import { isReady, onReady } from '@/lib/motion';
 import type { IsoBars } from '@/lib/isoBars';
 import styles from './IsoBarsCard.module.css';
 
-const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const VALUES = [1.6, 2.0, 2.5, 3.0, 3.8, 4.4];
 const HIGHLIGHT = 5;
 
+export type BarsContent = { title: string; total: string; days: string[]; aria: string };
+
+const RELAY: BarsContent = {
+  title: 'runs per weekday',
+  total: '62,000 average',
+  days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'],
+  aria: 'Runs per weekday, growing from Monday to Saturday',
+};
+
 /** "Runs per weekday" as isometric three.js columns, animated while on screen. */
-export default function IsoBarsCard() {
+export default function IsoBarsCard({ content = RELAY }: { content?: BarsContent }) {
+  const DAYS = content.days;
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -78,10 +87,10 @@ export default function IsoBarsCard() {
   return (
     <div className={`card ${styles.card}`}>
       <p className={styles.head}>
-        <span>runs per weekday</span>
-        <b>62,000 average</b>
+        <span>{content.title}</span>
+        <b>{content.total}</b>
       </p>
-      <canvas ref={canvasRef} className={styles.canvas} role="img" aria-label="Runs per weekday, growing from Monday to Saturday" />
+      <canvas ref={canvasRef} className={styles.canvas} role="img" aria-label={content.aria} />
       <ul className={styles.days}>
         {DAYS.map((d, i) => (
           <li key={d} className={i === HIGHLIGHT ? styles.hot : undefined}>

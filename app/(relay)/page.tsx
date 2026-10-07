@@ -15,7 +15,7 @@ import Cases from '@/components/sections/Cases';
 import Pricing from '@/components/sections/Pricing';
 import FinalCta from '@/components/sections/FinalCta';
 import Footer from '@/components/sections/Footer';
-import styles from './page.module.css';
+import styles from '../page.module.css';
 
 export default function Page() {
   return (

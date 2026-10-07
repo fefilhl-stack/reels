@@ -2,10 +2,10 @@ import type { Metadata, Viewport } from 'next';
 import localFont from 'next/font/local';
 import { GeistSans } from 'geist/font/sans';
 import { GeistMono } from 'geist/font/mono';
-import './globals.css';
+import '../globals.css';
 
 const serif = localFont({
-  src: './fonts/InstrumentSerif-Italic.woff2',
+  src: '../fonts/InstrumentSerif-Italic.woff2',
   style: 'italic',
   weight: '400',
   display: 'swap',
