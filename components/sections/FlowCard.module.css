@@ -1,0 +1,421 @@
+/* The card is laid out at a fixed 700 × 610 and scaled with --s, so every
+   inner position below is in "card pixels". */
+
+.wrap {
+  --s: 1;
+  position: absolute;
+  z-index: 1;
+  left: 53%;
+  top: 52%;
+  width: calc(700px * var(--s));
+  height: calc(610px * var(--s));
+  transform: translateY(-50%);
+  perspective: calc(2400px * var(--s));
+  perspective-origin: 0% 50%;
+}
+
+.stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 700px;
+  height: 610px;
+  transform: scale(var(--s));
+  transform-origin: 0 0;
+  transform-style: preserve-3d;
+}
+
+.card {
+  --mx: 0;
+  --my: 0;
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 28px;
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(192, 243, 73, 0.05), transparent 60%),
+    linear-gradient(180deg, rgba(30, 30, 28, 0.82), rgba(14, 14, 13, 0.86));
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 60px 120px -40px rgba(0, 0, 0, 0.95);
+  transform: rotateY(calc(-8deg + var(--mx) * 3deg)) rotateX(calc(2deg - var(--my) * 2deg));
+  transform-origin: 0% 50%;
+  animation: float 9s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -8px;
+  }
+}
+
+/* ---- head ---- */
+.head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 86px;
+  padding: 0 34px 0 38px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.name {
+  color: rgba(242, 243, 238, 0.82);
+  font-size: 17px;
+  letter-spacing: -0.01em;
+}
+.sep {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.16);
+}
+.meta,
+.state {
+  font-family: var(--font-mono);
+  font-size: 14.5px;
+  color: rgba(242, 243, 238, 0.72);
+}
+.state {
+  margin-left: auto;
+  color: var(--lime);
+  text-shadow: 0 0 12px rgba(192, 243, 73, 0.5);
+}
+
+/* ---- canvas ---- */
+.canvas {
+  position: relative;
+  height: 352px;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1.4px);
+  background-size: 22px 22px;
+  background-position: 11px 11px;
+}
+
+.tools {
+  position: absolute;
+  left: 42px;
+  top: 28px;
+  display: grid;
+  gap: 9px;
+}
+.tools span {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(242, 243, 238, 0.66);
+}
+.tools svg {
+  width: 15px;
+  height: 15px;
+}
+.tools .toolOn {
+  background: rgba(255, 255, 255, 0.13);
+  color: var(--text);
+}
+
+.zoom {
+  position: absolute;
+  right: 54px;
+  top: 24px;
+  padding: 6px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(242, 243, 238, 0.55);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.edges path {
+  fill: none;
+}
+.edge {
+  stroke: rgba(255, 255, 255, 0.2);
+  stroke-width: 1.4;
+}
+.edgeLit {
+  stroke: rgba(192, 243, 73, 0.62);
+  stroke-width: 1.6;
+}
+.pulse {
+  stroke: #e6ff9c;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-dasharray: 8 92;
+  stroke-dashoffset: 100;
+  filter: drop-shadow(0 0 4px rgba(192, 243, 73, 0.9));
+  animation: pulse 2.6s linear infinite;
+}
+@keyframes pulse {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.port {
+  fill: #ecefe2;
+  stroke: #0d0e0b;
+  stroke-width: 1.6;
+}
+
+.label {
+  position: absolute;
+  z-index: 2;
+  padding: 3px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: #121311;
+  color: rgba(242, 243, 238, 0.72);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.2;
+  transform: translate(-50%, -50%);
+}
+
+.node {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  gap: 7px;
+  padding: 15px 22px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 13px;
+  background: linear-gradient(180deg, #1f1f1d, #171716);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 18px 36px -16px rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+}
+.node b {
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.node small {
+  color: rgba(242, 243, 238, 0.42);
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+}
+
+.start {
+  left: -112px;
+  top: 150px;
+  width: 196px;
+  background: linear-gradient(180deg, rgba(40, 40, 37, 0.94), rgba(26, 26, 24, 0.94));
+  border-color: rgba(255, 255, 255, 0.14);
+  transition: opacity 0.5s ease;
+}
+.cond {
+  left: 158px;
+  top: 88px;
+  width: 206px;
+}
+.log {
+  left: 160px;
+  top: 246px;
+  width: 206px;
+}
+.ask {
+  left: 446px;
+  top: 170px;
+  width: 188px;
+}
+
+.wait {
+  position: absolute;
+  left: 446px;
+  top: 258px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(242, 243, 238, 0.7);
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+}
+.wait i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(242, 243, 238, 0.6);
+  animation: blink 1.6s ease-in-out infinite;
+}
+@keyframes blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* hidden until the intro tile lands on it */
+:global(.js:not(.intro-landed)) .start {
+  opacity: 0;
+}
+
+/* ---- runs ---- */
+.runs {
+  height: 172px;
+  margin: 0 34px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+.runsLabel {
+  display: block;
+  margin-bottom: 14px;
+  color: rgba(242, 243, 238, 0.45);
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+.runs ol {
+  display: grid;
+  gap: 13px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.runs li {
+  display: grid;
+  grid-template-columns: 8px 92px 1fr auto;
+  align-items: center;
+  gap: 14px;
+  color: rgba(242, 243, 238, 0.82);
+  font-family: var(--font-mono);
+  font-size: 14.5px;
+}
+.runs li i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(242, 243, 238, 0.45);
+}
+.runs li i.dotOn {
+  background: var(--lime);
+  box-shadow: 0 0 8px rgba(192, 243, 73, 0.9);
+}
+.runs time {
+  color: rgba(242, 243, 238, 0.42);
+}
+.runs em {
+  color: rgba(242, 243, 238, 0.5);
+  font-style: normal;
+}
+.fresh {
+  animation: runIn 0.7s var(--ease-out);
+}
+@keyframes runIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+/* registration marks under the card */
+.mark {
+  position: absolute;
+  top: 640px;
+  width: 14px;
+  height: 14px;
+  opacity: 0.35;
+}
+.mark::before,
+.mark::after {
+  content: '';
+  position: absolute;
+  background: #fff;
+}
+.mark::before {
+  left: 6.5px;
+  top: 0;
+  width: 1px;
+  height: 14px;
+}
+.mark::after {
+  top: 6.5px;
+  left: 0;
+  width: 14px;
+  height: 1px;
+}
+.markL {
+  left: 200px;
+}
+.markR {
+  left: 640px;
+}
+
+/* ---- narrow screens: in the flow, flat, everything inside the card ---- */
+.wrap[data-mode='flat'] {
+  position: relative;
+  left: auto;
+  top: auto;
+  width: auto;
+  max-width: 700px;
+  height: calc(610px * var(--s));
+  margin: 0 var(--gutter);
+  transform: none;
+  perspective: none;
+}
+@media (min-width: 740px) {
+  .wrap[data-mode='flat'] {
+    margin: 0 auto;
+    width: calc(100% - 2 * var(--gutter));
+  }
+}
+.wrap[data-mode='flat'] .card {
+  transform: none;
+  animation: none;
+}
+.wrap[data-mode='flat'] .tools,
+.wrap[data-mode='flat'] .mark {
+  display: none;
+}
+.wrap[data-mode='flat'] .start {
+  left: 24px;
+}
+.wrap[data-mode='flat'] .cond,
+.wrap[data-mode='flat'] .log {
+  left: 268px;
+}
+.wrap[data-mode='flat'] .cond {
+  top: 56px;
+}
+.wrap[data-mode='flat'] .log {
+  top: 262px;
+}
+.wrap[data-mode='flat'] .ask,
+.wrap[data-mode='flat'] .wait {
+  left: 494px;
+}
+.wrap[data-mode='flat'] .node {
+  padding: 14px 18px 13px;
+}
+.wrap[data-mode='flat'] .start,
+.wrap[data-mode='flat'] .cond,
+.wrap[data-mode='flat'] .log {
+  width: 190px;
+}
+.wrap[data-mode='flat'] .ask {
+  width: 182px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    animation: none;
+  }
+}

@@ -1,0 +1,214 @@
+.header {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 60;
+  height: var(--header-h);
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.4s;
+}
+
+.header::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0.55));
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  backdrop-filter: blur(18px) saturate(1.2);
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+
+.scrolled::before {
+  opacity: 1;
+}
+
+.inner {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  max-width: calc(var(--container) + 2 * var(--gutter));
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  text-decoration: none;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+
+.mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--lime);
+  box-shadow:
+    0 0 22px -6px rgba(192, 243, 73, 0.7),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+.mark svg {
+  width: 22px;
+  height: 22px;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: clamp(22px, 2.6vw, 40px);
+  margin-left: clamp(40px, 17vw, 300px);
+}
+
+.nav a:not(:global(.btn)) {
+  position: relative;
+  color: rgba(242, 243, 238, 0.66);
+  text-decoration: none;
+  font-size: 15px;
+  transition: color 0.25s;
+}
+.nav a:not(:global(.btn)):hover,
+.nav a.active {
+  color: var(--text);
+}
+.nav a:not(:global(.btn))::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -7px;
+  height: 1px;
+  background: var(--lime);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.45s var(--ease-out);
+}
+.nav a.active::after {
+  transform: scaleX(1);
+}
+
+.navCta {
+  display: none !important;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.4);
+  color: rgba(242, 243, 238, 0.9);
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+.cta {
+  height: 40px;
+}
+
+.toggle {
+  display: none;
+  place-content: center;
+  gap: 6px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+.toggle span {
+  display: block;
+  width: 18px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: var(--text);
+  transition: transform 0.35s var(--ease-out);
+}
+.toggle[aria-expanded='true'] span:first-child {
+  transform: translateY(3.75px) rotate(45deg);
+}
+.toggle[aria-expanded='true'] span:last-child {
+  transform: translateY(-3.75px) rotate(-45deg);
+}
+
+@media (max-width: 1100px) {
+  .nav {
+    margin-left: 48px;
+  }
+  .status {
+    display: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .toggle {
+    display: inline-grid;
+  }
+  .nav {
+    position: fixed;
+    top: calc(var(--header-h) + 6px);
+    left: 12px;
+    right: 12px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    margin: 0;
+    padding: 10px;
+    border: 1px solid var(--line-2);
+    border-radius: 18px;
+    background: rgba(12, 12, 11, 0.96);
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-8px);
+    transition:
+      opacity 0.3s,
+      transform 0.4s var(--ease-out),
+      visibility 0s linear 0.4s;
+  }
+  .open {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    transition:
+      opacity 0.3s,
+      transform 0.4s var(--ease-out);
+  }
+  .nav a:not(:global(.btn)) {
+    padding: 15px 10px;
+    border-bottom: 1px solid var(--line);
+    font-size: 17px;
+  }
+  .nav a:not(:global(.btn))::after {
+    display: none;
+  }
+  .navCta {
+    display: inline-flex !important;
+    margin-top: 12px;
+  }
+}
+
+@media (max-width: 520px) {
+  .cta {
+    display: none !important;
+  }
+}

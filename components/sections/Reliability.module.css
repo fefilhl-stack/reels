@@ -1,0 +1,42 @@
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  padding: 40px 42px 36px;
+}
+
+.card h3 {
+  margin-bottom: 14px;
+  font-size: clamp(24px, 2vw, 30px);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
+
+.card > p:not(:global(.card-label)) {
+  max-width: 34em;
+  margin-bottom: 40px;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.foot {
+  margin-top: auto;
+}
+
+@media (max-width: 1000px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .card {
+    padding: 28px 20px 26px;
+  }
+}

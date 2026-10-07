@@ -1,0 +1,91 @@
+.list {
+  margin: 22px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 52px;
+  align-items: center;
+  gap: 18px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.where {
+  display: grid;
+  gap: 5px;
+}
+.where b {
+  font-family: var(--font-mono);
+  font-size: 15.5px;
+  font-weight: 400;
+}
+.where small {
+  color: var(--dim);
+  font-size: 15px;
+}
+
+.bar {
+  --v: 0;
+  position: relative;
+  height: 10px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--v) * 100%);
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(242, 243, 238, 0.35), rgba(242, 243, 238, 0.6));
+}
+.bar em {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--v) * 100%);
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #f4f5f0;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.5);
+  transform: translate(-50%, -50%);
+}
+.lime i {
+  background: linear-gradient(90deg, #9fd22d, var(--lime));
+  box-shadow: 0 0 14px rgba(192, 243, 73, 0.55);
+}
+
+.value {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 26px;
+}
+.foot svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+@media (max-width: 640px) {
+  .row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr) 40px;
+    gap: 12px;
+  }
+  .where b {
+    font-size: 13px;
+  }
+  .where small {
+    font-size: 13px;
+  }
+}

@@ -1,0 +1,50 @@
+.intro {
+  display: none;
+}
+
+:global(.js) .intro {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: block;
+  pointer-events: none;
+}
+
+/* black behind the lime only until the page starts to show */
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  transition: opacity 0.5s ease;
+}
+:global(.is-ready) .backdrop {
+  opacity: 0;
+}
+
+.panel {
+  position: absolute;
+  inset: 0;
+  background: #c0f349;
+  will-change: clip-path;
+}
+
+.tile {
+  position: absolute;
+  left: -38px;
+  top: -38px;
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  border-radius: 20px;
+  background: linear-gradient(160deg, #1b1d16, #070806);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 14px 30px -12px rgba(20, 30, 0, 0.55);
+  will-change: transform;
+}
+
+.tile svg {
+  width: 44px;
+  height: 44px;
+}
