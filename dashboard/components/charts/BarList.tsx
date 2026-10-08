@@ -48,7 +48,11 @@ export function BarList({ rows, color = 'var(--s1)', baseline }: { rows: BarRow[
                   style={{ position: 'absolute', left: `${(baseline.value / max) * 100}%`, top: -2, bottom: -2, width: 1, background: 'var(--ink-2)' }}
                 />
               )}
-              <span className="small num" style={{ whiteSpace: 'nowrap', fontWeight: 550 }}>
+              {/* Surface-colored halo keeps the label readable where it crosses the baseline. */}
+              <span
+                className="small num"
+                style={{ position: 'relative', whiteSpace: 'nowrap', fontWeight: 550, background: 'var(--surface)', padding: '0 3px', marginLeft: -3, borderRadius: 3 }}
+              >
                 {r.display}
               </span>
               {active === r.key && r.detail && (

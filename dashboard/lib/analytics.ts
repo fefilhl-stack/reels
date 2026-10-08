@@ -29,6 +29,8 @@ export interface PostFact {
   rubricId: number | null;
   rubric: string | null;
   duration: number;
+  cta: string;
+  words: number;
   projectName: string;
   projectColor: number;
   username: string;
@@ -76,13 +78,15 @@ export function loadFacts(projectId: number | null, platform?: Platform | null, 
     rubric_id: number | null;
     rubric: string | null;
     duration: number;
+    cta: string;
+    script: string;
     project_name: string;
     project_color: number;
     username: string;
     thumb_name: string | null;
   }>(
     `SELECT p.id, p.video_id, p.account_id, v.project_id, p.platform, p.published_at, p.views, p.likes, p.comments,
-            p.shares, p.saves, p.avg_view_pct, p.url, v.title, v.hook, v.rubric_id, r.name AS rubric, v.duration,
+            p.shares, p.saves, p.avg_view_pct, p.url, v.title, v.hook, v.rubric_id, r.name AS rubric, v.duration, v.cta, v.script,
             pr.name AS project_name, pr.color AS project_color, a.username, v.thumb_name
        FROM posts p
        JOIN videos v ON v.id = p.video_id
@@ -129,6 +133,8 @@ export function loadFacts(projectId: number | null, platform?: Platform | null, 
       rubricId: r.rubric_id,
       rubric: r.rubric,
       duration: r.duration,
+      cta: r.cta,
+      words: r.script ? r.script.split(/\s+/).filter(Boolean).length : 0,
       projectName: r.project_name,
       projectColor: r.project_color,
       username: r.username,
@@ -398,6 +404,44 @@ export const DURATION_BUCKETS: { key: string; label: string; max: number }[] = [
 
 export function durationBucket(sec: number) {
   return DURATION_BUCKETS.find((b) => sec < b.max) ?? DURATION_BUCKETS[DURATION_BUCKETS.length - 1];
+}
+
+export const WORD_BUCKETS: { key: string; label: string; max: number }[] = [
+  { key: 'a', label: 'до 80 слов', max: 80 },
+  { key: 'b', label: '80–100', max: 100 },
+  { key: 'c', label: '100–120', max: 120 },
+  { key: 'd', label: '120–140', max: 140 },
+  { key: 'e', label: 'больше 140', max: Infinity },
+];
+
+export function wordBucket(words: number) {
+  return WORD_BUCKETS.find((b) => words < b.max) ?? WORD_BUCKETS[WORD_BUCKETS.length - 1];
+}
+
+/** Action rates per CTA: does «Сохранить» actually bring saves, «Отправить» shares, «Комментарий» comments? */
+export function ctaStats(facts: PostFact[], kindOf: (cta: string) => string | null) {
+  const groups = new Map<string, PostFact[]>();
+  for (const f of facts) {
+    const k = kindOf(f.cta);
+    if (!k) continue;
+    const list = groups.get(k) ?? [];
+    list.push(f);
+    groups.set(k, list);
+  }
+  return [...groups.entries()]
+    .map(([key, list]) => {
+      const views = list.reduce((s, f) => s + f.views, 0) || 1;
+      const scores = list.map((f) => f.score).filter((x): x is number => x != null);
+      return {
+        key,
+        videos: new Set(list.map((f) => f.videoId)).size,
+        saves: list.reduce((s, f) => s + f.saves, 0) / views,
+        shares: list.reduce((s, f) => s + f.shares, 0) / views,
+        comments: list.reduce((s, f) => s + f.comments, 0) / views,
+        medianScore: median(scores),
+      };
+    })
+    .sort((a, b) => b.videos - a.videos);
 }
 
 export const HOUR_BUCKETS = ['0–3', '3–6', '6–9', '9–12', '12–15', '15–18', '18–21', '21–24'];

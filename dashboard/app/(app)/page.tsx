@@ -1,16 +1,18 @@
 import Link from 'next/link';
 import { dailyViews, kpis, loadFacts, rollupVideos, weeklyCadence } from '@/lib/analytics';
 import { all } from '@/lib/db';
-import { fmtDate, fmtNum, fmtPct, fmtTime } from '@/lib/format';
+import { fmtNum, fmtPct } from '@/lib/format';
+import { ruDate } from '@/lib/plan';
+import { today } from '@/lib/planner';
 import { buildInsights } from '@/lib/insights';
 import { getScope } from '@/lib/scope';
-import { appTz, DAY_MS } from '@/lib/time';
-import { PLATFORMS, type Platform, type Project } from '@/lib/types';
+import { DAY_MS } from '@/lib/time';
+import { PLATFORMS, type Platform, type Project, type ScriptStatus } from '@/lib/types';
 import { LoadDemoButton } from '@/components/DemoButtons';
 import { InsightList } from '@/components/InsightList';
 import { LineChart } from '@/components/charts/LineChart';
 import { parseRange, RangeTabs } from '@/components/RangeTabs';
-import { Empty, PlatformTag, platformColor, projectColor, ProjectTag, ScoreBadge, StatTile, Thumb } from '@/components/ui';
+import { Empty, PlatformTag, platformColor, ProjectTag, ScoreBadge, StatTile, Thumb } from '@/components/ui';
 
 export const metadata = { title: 'Обзор' };
 
@@ -18,18 +20,21 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const range = parseRange((await searchParams).range);
   const scope = await getScope();
   const projects = scope ? [scope] : all<Project>('SELECT * FROM projects WHERE archived = 0 ORDER BY id');
-  const tz = appTz();
 
   if (!projects.length) {
     return (
       <div className="card card-pad">
         <Empty title="Здесь пока пусто">
           <p style={{ maxWidth: 520 }}>
-            Создайте проект, подключите к нему аккаунты TikTok, Instagram и YouTube и загружайте ролики один раз — дашборд разошлёт их по площадкам и
-            соберёт статистику. Чтобы сначала посмотреть, как всё работает, загрузите демо-данные: три проекта с историей за два месяца.
+            Перенесите контент-план из Google Таблиц (паспорта проектов и листы со сценариями), подключите TikTok, Instagram и YouTube и загружайте
+            ролик прямо в строку сценария — он выйдет в дату и время из плана, а статистика соберётся сама. Чтобы сначала посмотреть, как всё
+            работает, загрузите демо-данные.
           </p>
           <div className="row">
-            <Link href="/projects" className="btn btn-primary">
+            <Link href="/content" className="btn btn-primary">
+              Перенести из Google Таблиц
+            </Link>
+            <Link href="/projects" className="btn">
               Создать проект
             </Link>
             <LoadDemoButton />
@@ -42,6 +47,18 @@ export default async function Overview({ searchParams }: { searchParams: Promise
   const set = loadFacts(scope?.id ?? null);
   const plannedPerWeek = projects.reduce((s, p) => s + p.posts_per_week, 0);
   const k = kpis(set, scope?.id ?? null, range, plannedPerWeek);
+  // Plan for the period = scripts dated in it (falls back to the weekly frequency for plans without dates).
+  const planRow = all<{ planned: number; done: number }>(
+    `SELECT COUNT(*) AS planned, SUM(CASE WHEN v.status = 'Опубликован' THEN 1 ELSE 0 END) AS done
+       FROM videos v JOIN projects pr ON pr.id = v.project_id
+      WHERE pr.archived = 0 AND v.number > 0 AND v.plan_date > date(?, ?) AND v.plan_date <= ? ${scope ? 'AND pr.id = ?' : ''}`,
+    today(),
+    `-${range} day`,
+    today(),
+    ...(scope ? [scope.id] : []),
+  )[0];
+  const planned = planRow.planned || k.plan;
+  const done = planRow.planned ? planRow.done : k.published;
   const byPlatform = dailyViews(set, range, 'platform');
   const insights = buildInsights(set, projects);
   const since = Date.now() - range * DAY_MS;
@@ -49,13 +66,26 @@ export default async function Overview({ searchParams }: { searchParams: Promise
     .sort((a, b) => b.views - a.views)
     .slice(0, 6);
 
-  const upcoming = all<{ video_id: number; title: string; scheduled_at: string; platforms: string; project_name: string; color: number; thumb_name: string | null }>(
-    `SELECT p.video_id, v.title, p.scheduled_at, GROUP_CONCAT(p.platform) AS platforms, pr.name AS project_name, pr.color, v.thumb_name
-       FROM posts p JOIN videos v ON v.id = p.video_id JOIN projects pr ON pr.id = v.project_id
-      WHERE p.status IN ('scheduled','publishing','processing') AND pr.archived = 0 ${scope ? 'AND pr.id = ?' : ''}
-      GROUP BY p.video_id, p.scheduled_at ORDER BY p.scheduled_at LIMIT 8`,
+  const t = today();
+  const upcoming = all<{ id: number; number: number; title: string; plan_date: string; plan_time: string | null; status: ScriptStatus; file_name: string | null; project_name: string; color: number; thumb_name: string | null; platforms: string | null; post_states: string | null }>(
+    `SELECT v.id, v.number, v.title, v.plan_date, v.plan_time, v.status, v.file_name, pr.name AS project_name, pr.color, v.thumb_name,
+            (SELECT GROUP_CONCAT(DISTINCT p.platform) FROM posts p WHERE p.video_id = v.id AND p.status != 'canceled') AS platforms,
+            (SELECT GROUP_CONCAT(p.status) FROM posts p WHERE p.video_id = v.id AND p.status != 'canceled') AS post_states
+       FROM videos v JOIN projects pr ON pr.id = v.project_id
+      WHERE pr.archived = 0 AND v.number > 0 AND v.plan_date BETWEEN ? AND date(?, '+6 day') ${scope ? 'AND pr.id = ?' : ''}
+      ORDER BY v.plan_date, v.plan_time LIMIT 14`,
+    t,
+    t,
     ...(scope ? [scope.id] : []),
   );
+  const stateOf = (u: (typeof upcoming)[number]) => {
+    const states = u.post_states?.split(',') ?? [];
+    if (states.includes('published')) return { cls: 'badge-good', text: 'опубликован' };
+    if (states.includes('failed')) return { cls: 'badge-critical', text: 'ошибка' };
+    if (states.length) return { cls: 'badge-opportunity', text: 'запланирован' };
+    if (u.file_name) return { cls: 'badge-warning', text: 'загружен, не запланирован' };
+    return { cls: 'badge-info', text: u.status === 'Опубликован' ? 'опубликован' : 'нет ролика' };
+  };
 
   const perProject = !scope
     ? (() => {
@@ -99,9 +129,9 @@ export default async function Overview({ searchParams }: { searchParams: Promise
           spark={k.followersSpark}
         />
         <StatTile label="Вовлечённость (ER)" value={fmtPct(k.er)} delta={erDelta} compare="к прошлому периоду" />
-        <StatTile label="Опубликовано роликов" value={`${k.published} из ${k.plan}`} compare={`план ${plannedPerWeek} в неделю`}>
+        <StatTile label="Выполнение плана" value={`${done} из ${planned}`} compare={`опубликовано из запланированных за ${range} дн.`}>
           <div className="meter" aria-hidden>
-            <span style={{ width: `${Math.min(100, (k.published / Math.max(1, k.plan)) * 100)}%` }} />
+            <span style={{ width: `${Math.min(100, (done / Math.max(1, planned)) * 100)}%` }} />
           </div>
         </StatTile>
       </section>
@@ -201,8 +231,8 @@ export default async function Overview({ searchParams }: { searchParams: Promise
         <section className="card">
           <div className="card-head">
             <div>
-              <h2>Ближайшие публикации</h2>
-              <p>Очередь планировщика</p>
+              <h2>План на 7 дней</h2>
+              <p>Сценарии по датам и их готовность</p>
             </div>
             <Link href="/calendar" className="btn btn-sm">
               Календарь
@@ -210,27 +240,32 @@ export default async function Overview({ searchParams }: { searchParams: Promise
           </div>
           <div className="card-body stack" style={{ gap: 10 }}>
             {upcoming.length ? (
-              upcoming.map((u) => (
-                <Link key={`${u.video_id}-${u.scheduled_at}`} href={`/content/${u.video_id}`} className="row" style={{ flexWrap: 'nowrap', gap: 10 }}>
-                  <Thumb thumb={u.thumb_name} title={u.title} color={u.color} width={28} />
-                  <span style={{ minWidth: 0, flex: 1 }}>
-                    <span className="ellipsis" style={{ display: 'block', fontWeight: 550 }}>
-                      {u.title}
+              upcoming.map((u) => {
+                const st = stateOf(u);
+                return (
+                  <Link key={u.id} href={`/content/${u.id}`} className="row" style={{ flexWrap: 'nowrap', gap: 10 }}>
+                    <Thumb thumb={u.thumb_name} title={u.title} color={u.color} width={26} />
+                    <span style={{ minWidth: 0, flex: 1 }}>
+                      <span className="ellipsis" style={{ display: 'block', fontWeight: 550 }}>
+                        №{u.number} {u.title}
+                      </span>
+                      <span className="small muted row" style={{ gap: 6 }}>
+                        {ruDate(u.plan_date).slice(0, 5)}
+                        {u.plan_time ? `, ${u.plan_time}` : ''}
+                        {(u.platforms?.split(',') as Platform[] | undefined)?.map((p) => (
+                          <PlatformTag key={p} platform={p} label={false} />
+                        ))}
+                        {!scope && <span>· {u.project_name}</span>}
+                      </span>
                     </span>
-                    <span className="small muted row" style={{ gap: 6 }}>
-                      {fmtDate(u.scheduled_at, tz, false)}, {fmtTime(u.scheduled_at, tz)}
-                      {(u.platforms.split(',') as Platform[]).map((p) => (
-                        <PlatformTag key={p} platform={p} label={false} />
-                      ))}
-                    </span>
-                  </span>
-                  {!scope && <span className="dot" style={{ background: projectColor(u.color) }} title={u.project_name} />}
-                </Link>
-              ))
+                    <span className={`badge ${st.cls}`}>{st.text}</span>
+                  </Link>
+                );
+              })
             ) : (
-              <Empty title="Очередь пуста">
+              <Empty title="На неделю вперёд в плане пусто">
                 <Link href="/content" className="btn btn-sm">
-                  Запланировать готовые ролики
+                  К контент-плану
                 </Link>
               </Empty>
             )}

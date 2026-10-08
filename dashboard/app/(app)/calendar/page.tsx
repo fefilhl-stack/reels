@@ -1,13 +1,12 @@
 import Link from 'next/link';
 import { all } from '@/lib/db';
-import { fmtDuration } from '@/lib/format';
+import { ruDate } from '@/lib/plan';
+import { today } from '@/lib/planner';
 import { getScope } from '@/lib/scope';
-import { projectSlots } from '@/lib/slots';
 import { appTz, dayKey, zonedParts, zonedToUtc } from '@/lib/time';
-import type { Platform, PostStatus, Project } from '@/lib/types';
+import type { Platform, PostStatus, Project, ScriptStatus } from '@/lib/types';
 import { Thumb } from '@/components/ui';
-import { CalendarGrid, type CalItem, type SlotMark } from './CalendarGrid';
-import { QueueButton } from './QueueButton';
+import { CalendarGrid, type CalItem } from './CalendarGrid';
 
 export const metadata = { title: 'Календарь' };
 
@@ -26,60 +25,60 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   const lead = zonedParts(first, tz).wd - 1;
   const days: string[] = [];
   for (let i = 0; i < 42; i++) days.push(dayKey(zonedToUtc(year, month, 1 - lead + i, 12, 0, tz), tz));
-  const from = zonedToUtc(year, month, 1 - lead, 0, 0, tz).toISOString();
-  const to = zonedToUtc(year, month, 1 - lead + 42, 0, 0, tz).toISOString();
 
-  const rows = all<{ id: number; video_id: number; title: string; platform: Platform; status: PostStatus; at: string; color: number; project_id: number }>(
-    `SELECT p.id, p.video_id, v.title, p.platform, p.status, COALESCE(p.published_at, p.scheduled_at) AS at, pr.color, pr.id AS project_id
-       FROM posts p JOIN videos v ON v.id = p.video_id JOIN projects pr ON pr.id = v.project_id
-      WHERE pr.archived = 0 AND p.status != 'canceled' ${scope ? 'AND pr.id = ?' : ''}
-        AND COALESCE(p.published_at, p.scheduled_at) >= ? AND COALESCE(p.published_at, p.scheduled_at) < ?
-      ORDER BY at`,
+  const scripts = all<{ id: number; number: number; title: string; plan_date: string; plan_time: string | null; status: ScriptStatus; file_name: string | null; color: number; project_name: string }>(
+    `SELECT v.id, v.number, v.title, v.plan_date, v.plan_time, v.status, v.file_name, pr.color, pr.name AS project_name
+       FROM videos v JOIN projects pr ON pr.id = v.project_id
+      WHERE pr.archived = 0 AND v.plan_date BETWEEN ? AND ? ${scope ? 'AND pr.id = ?' : ''}
+      ORDER BY v.plan_date, v.plan_time`,
+    days[0],
+    days[days.length - 1],
     ...(scope ? [scope.id] : []),
-    from,
-    to,
   );
+  const posts = all<{ video_id: number; platform: Platform; status: PostStatus }>(
+    `SELECT p.video_id, p.platform, p.status FROM posts p JOIN videos v ON v.id = p.video_id
+      WHERE p.status != 'canceled' AND v.plan_date BETWEEN ? AND ?`,
+    days[0],
+    days[days.length - 1],
+  );
+  const items: CalItem[] = scripts.map((s) => {
+    const ps = posts.filter((p) => p.video_id === s.id);
+    const state: CalItem['state'] = ps.some((p) => p.status === 'published')
+      ? 'published'
+      : ps.some((p) => p.status === 'failed')
+        ? 'failed'
+        : ps.length
+          ? 'scheduled'
+          : s.file_name
+            ? 'ready'
+            : 'empty';
+    return {
+      id: s.id,
+      number: s.number,
+      title: s.title,
+      day: s.plan_date,
+      time: s.plan_time ?? '',
+      status: s.status,
+      state,
+      platforms: [...new Set(ps.map((p) => p.platform))],
+      color: s.color,
+      project: s.project_name,
+    };
+  });
 
-  // One chip per video per slot; platforms listed inside.
-  const items = new Map<string, CalItem>();
-  for (const r of rows) {
-    const minute = r.at.slice(0, 16);
-    const key = `${r.video_id}:${r.status === 'published' ? dayKey(r.at, tz) : minute}`;
-    const cur = items.get(key);
-    const timeStr = new Intl.DateTimeFormat('ru-RU', { timeZone: tz, hour: '2-digit', minute: '2-digit' }).format(new Date(r.at));
-    if (cur) {
-      if (!cur.platforms.includes(r.platform)) cur.platforms.push(r.platform);
-      if (r.status === 'failed') cur.status = 'failed';
-      if (r.status === 'scheduled' && cur.status === 'published') cur.status = 'scheduled';
-    } else {
-      items.set(key, { postId: r.id, videoId: r.video_id, title: r.title, day: dayKey(r.at, tz), time: timeStr, platforms: [r.platform], status: r.status, color: r.color });
-    }
-  }
-
-  // Free posting slots for the selected project (future days only).
-  const slots: SlotMark[] = [];
-  if (scope) {
-    const today = dayKey(new Date(), tz);
-    const ps = projectSlots(scope);
-    for (const d of days) {
-      if (d < today) continue;
-      const [y, mo, dd] = d.split('-').map(Number);
-      const wd = zonedParts(zonedToUtc(y, mo, dd, 12, 0, tz), tz).wd;
-      for (const s of ps.filter((x) => x.d === wd)) {
-        const taken = [...items.values()].some((it) => it.day === d);
-        if (!taken) slots.push({ day: d, time: s.t });
-      }
-    }
-  }
-
-  const ready = all<{ id: number; title: string; color: number; thumb_name: string | null; duration: number; project_name: string }>(
-    `SELECT v.id, v.title, pr.color, v.thumb_name, v.duration, pr.name AS project_name FROM videos v JOIN projects pr ON pr.id = v.project_id
-      WHERE pr.archived = 0 AND v.stage = 'ready' ${scope ? 'AND pr.id = ?' : ''}
+  // Next 7 days without a video — what to film and edit first.
+  const t = today();
+  const missing = all<{ id: number; number: number; title: string; plan_date: string; plan_time: string | null; color: number; thumb_name: string | null; project_name: string }>(
+    `SELECT v.id, v.number, v.title, v.plan_date, v.plan_time, pr.color, v.thumb_name, pr.name AS project_name
+       FROM videos v JOIN projects pr ON pr.id = v.project_id
+      WHERE pr.archived = 0 AND v.file_name IS NULL AND v.status != 'Опубликован' AND v.number > 0
+        AND v.plan_date >= ? AND v.plan_date <= date(?, '+7 day') ${scope ? 'AND pr.id = ?' : ''}
         AND NOT EXISTS (SELECT 1 FROM posts p WHERE p.video_id = v.id AND p.status != 'canceled')
-      ORDER BY v.created_at`,
+      ORDER BY v.plan_date, v.plan_time LIMIT 20`,
+    t,
+    t,
     ...(scope ? [scope.id] : []),
   );
-
   const projects: Project[] = scope ? [scope] : all<Project>('SELECT * FROM projects WHERE archived = 0');
   const prev = month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, '0')}`;
   const next = month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, '0')}`;
@@ -89,10 +88,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
       <div className="page-head">
         <div>
           <h1>Календарь</h1>
-          <p>
-            Перетащите запланированный ролик на другой день — время сохранится.{' '}
-            {scope ? 'Пунктиром показаны свободные слоты очереди проекта.' : 'Выберите проект вверху, чтобы увидеть свободные слоты.'}
-          </p>
+          <p>Контент-план по датам. Перетащите сценарий на другой день — дата в плане и запланированные публикации изменятся вместе.</p>
         </div>
         <div className="row">
           <Link href={`/calendar?month=${prev}`} className="btn btn-icon" aria-label="Предыдущий месяц">
@@ -109,46 +105,69 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
           </Link>
         </div>
       </div>
+      <div className="row small ink-2" style={{ gap: 14 }}>
+        <span className="row" style={{ gap: 6 }}>
+          <span className="cal-state" data-state="empty" /> нет ролика
+        </span>
+        <span className="row" style={{ gap: 6 }}>
+          <span className="cal-state" data-state="ready" /> ролик загружен
+        </span>
+        <span className="row" style={{ gap: 6 }}>
+          <span className="cal-state" data-state="scheduled" /> запланирован
+        </span>
+        <span className="row" style={{ gap: 6 }}>
+          <span className="cal-state" data-state="published" /> опубликован
+        </span>
+        <span className="row" style={{ gap: 6 }}>
+          <span className="cal-state" data-state="failed" /> ошибка
+        </span>
+      </div>
       <div className="grid-calendar">
         <div className="card" style={{ overflow: 'hidden' }}>
-          <CalendarGrid days={days} month={`${year}-${String(month).padStart(2, '0')}`} today={dayKey(new Date(), tz)} items={[...items.values()]} slots={slots} />
+          <CalendarGrid days={days} month={`${year}-${String(month).padStart(2, '0')}`} today={t} items={items} multi={!scope && projects.length > 1} />
         </div>
         <aside className="stack">
           <div className="card">
             <div className="card-head">
-              <h2>Готовы к публикации</h2>
-              <span className="chip">{ready.length}</span>
+              <div>
+                <h2>Ближайшие без ролика</h2>
+                <p>7 дней вперёд</p>
+              </div>
+              <span className="chip">{missing.length}</span>
             </div>
             <div className="card-body stack" style={{ gap: 10 }}>
-              {ready.length ? (
-                ready.map((v) => (
-                  <div key={v.id} className="row" style={{ flexWrap: 'nowrap', gap: 10 }}>
-                    <Thumb thumb={v.thumb_name} title={v.title} color={v.color} width={26} />
-                    <Link href={`/content/${v.id}`} style={{ minWidth: 0, flex: 1 }}>
+              {missing.length ? (
+                missing.map((v) => (
+                  <Link key={v.id} href={`/content/${v.id}`} className="row" style={{ flexWrap: 'nowrap', gap: 10 }}>
+                    <Thumb thumb={v.thumb_name} title={v.title} color={v.color} width={24} />
+                    <span style={{ minWidth: 0, flex: 1 }}>
                       <span className="ellipsis" style={{ display: 'block', fontWeight: 550, fontSize: 13 }}>
-                        {v.title}
+                        №{v.number} {v.title}
                       </span>
-                      <span className="small muted">{scope ? fmtDuration(v.duration) : v.project_name}</span>
-                    </Link>
-                    <QueueButton videoId={v.id} />
-                  </div>
+                      <span className="small muted">
+                        {ruDate(v.plan_date).slice(0, 5)}
+                        {v.plan_time ? `, ${v.plan_time}` : ''}
+                        {scope ? '' : ` · ${v.project_name}`}
+                      </span>
+                    </span>
+                  </Link>
                 ))
               ) : (
-                <div className="muted small">
-                  Запаса нет. Загрузите новые ролики или переведите карточки из «Съёмки» в «Готово».
-                </div>
+                <div className="muted small">На неделю вперёд все ролики загружены.</div>
               )}
             </div>
           </div>
           <div className="card card-pad stack-sm small">
-            <h2 style={{ marginBottom: 4 }}>План по неделям</h2>
+            <h2 style={{ marginBottom: 4 }}>Расписание</h2>
             {projects.map((p) => (
               <div key={p.id} className="spread">
                 <span className="row" style={{ gap: 6 }}>
                   <span className="dot" style={{ background: `var(--s${(p.color % 8) + 1})` }} />
                   {p.name}
                 </span>
-                <span className="muted">{p.posts_per_week} в неделю</span>
+                <span className="muted">
+                  {p.posts_per_week >= 7 ? 'каждый день' : `${p.posts_per_week} в неделю`}, {p.time_weekday}/{p.time_weekend}
+                </span>
               </div>
             ))}
           </div>

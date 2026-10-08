@@ -7,7 +7,7 @@ import { IconBoard, IconCalendar, IconChart, IconFolder, IconHome, IconLink, Ico
 
 const NAV = [
   { href: '/', label: 'Обзор', Icon: IconHome },
-  { href: '/content', label: 'Контент', Icon: IconBoard },
+  { href: '/content', label: 'Контент-план', Icon: IconBoard },
   { href: '/calendar', label: 'Календарь', Icon: IconCalendar },
   { href: '/analytics', label: 'Аналитика', Icon: IconChart },
   { href: '/projects', label: 'Проекты', Icon: IconFolder },

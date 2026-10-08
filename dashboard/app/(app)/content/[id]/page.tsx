@@ -5,9 +5,10 @@ import { loadFacts, valueAt } from '@/lib/analytics';
 import { buildCaption, specChecks } from '@/lib/captions';
 import { all, get } from '@/lib/db';
 import { fmtBytes, fmtDate, fmtDuration, fmtNum, fmtPct } from '@/lib/format';
-import { nextFreeSlots } from '@/lib/slots';
+import { countWords, parseCtas, parseRange, rangeState, ruDate } from '@/lib/plan';
+import { plannedAt } from '@/lib/planner';
 import { appTz, dayRange, toLocalInput, zonedToUtc } from '@/lib/time';
-import { PLATFORM_LABEL, PLATFORMS, type Account, type Platform, type Post, type Project, type Rubric, type Snippet, type Video } from '@/lib/types';
+import { PLATFORM_LABEL, PLATFORMS, type Account, type Platform, type Post, type Project, type Snippet, type Video } from '@/lib/types';
 import { IconCheck, IconExternal, IconX } from '@/components/Icons';
 import { LineChart } from '@/components/charts/LineChart';
 import { Empty, PlatformTag, platformColor, ProjectTag, ScoreBadge, StatusBadge } from '@/components/ui';
@@ -15,9 +16,9 @@ import { AttachFile, CoverPicker } from './MediaTools';
 import { PostActions } from './PostActions';
 import { PublishPanel } from './PublishPanel';
 import { VideoActions } from './VideoActions';
-import { VideoEditor } from './VideoEditor';
+import { ScriptEditor } from './ScriptEditor';
 
-export const metadata = { title: 'Ролик' };
+export const metadata = { title: 'Сценарий' };
 
 export default async function VideoPage({ params }: { params: Promise<{ id: string }> }) {
   const id = Number((await params).id);
@@ -25,8 +26,13 @@ export default async function VideoPage({ params }: { params: Promise<{ id: stri
   if (!video) notFound();
   const tz = appTz();
   const project = get<Project>('SELECT * FROM projects WHERE id = ?', video.project_id)!;
-  const projects = all<{ id: number; name: string }>('SELECT id, name FROM projects WHERE archived = 0 ORDER BY id');
-  const rubrics = all<Rubric>('SELECT * FROM rubrics ORDER BY name');
+  const rubrics = all<{ name: string }>('SELECT name FROM rubrics WHERE project_id = ? ORDER BY name', project.id).map((r) => r.name);
+  const rubric = video.rubric_id ? (get<{ name: string }>('SELECT name FROM rubrics WHERE id = ?', video.rubric_id)?.name ?? '') : '';
+  const ctas = [...new Set([...parseCtas(project.ctas), ...all<{ cta: string }>("SELECT DISTINCT cta FROM videos WHERE project_id = ? AND cta != ''", project.id).map((r) => r.cta)])];
+  const prev = get<{ id: number; number: number }>('SELECT id, number FROM videos WHERE project_id = ? AND number > 0 AND number < ? ORDER BY number DESC LIMIT 1', project.id, video.number);
+  const next = get<{ id: number; number: number }>('SELECT id, number FROM videos WHERE project_id = ? AND number > ? ORDER BY number LIMIT 1', project.id, video.number);
+  const lengthNorm = parseRange(project.video_length);
+  const lengthState = video.file_name ? rangeState(video.duration, lengthNorm) : null;
   const accounts = all<Account>('SELECT * FROM accounts WHERE project_id = ? ORDER BY platform, id', project.id);
   const posts = all<Post & { username: string }>(
     'SELECT p.*, a.username FROM posts p JOIN accounts a ON a.id = p.account_id WHERE p.video_id = ? ORDER BY p.created_at DESC',
@@ -35,7 +41,7 @@ export default async function VideoPage({ params }: { params: Promise<{ id: stri
   const snippets = all<Snippet>('SELECT * FROM snippets WHERE project_id = ? OR project_id IS NULL ORDER BY kind, id', project.id);
   const parent = video.parent_id ? get<{ id: number; title: string }>('SELECT id, title FROM videos WHERE id = ?', video.parent_id) : undefined;
   const sequels = all<{ id: number; title: string }>('SELECT id, title FROM videos WHERE parent_id = ?', id);
-  const slot = nextFreeSlots(project, 1)[0] ?? null;
+  const planned = plannedAt(video);
 
   // Analytics for this video's published posts.
   const set = loadFacts(project.id);
@@ -71,13 +77,34 @@ export default async function VideoPage({ params }: { params: Promise<{ id: stri
       <div className="page-head">
         <div style={{ minWidth: 0 }}>
           <div className="row small muted" style={{ marginBottom: 6 }}>
-            <Link href="/content" className="link">
-              Контент
+            <Link href={`/content?p=${project.id}`} className="link">
+              Контент-план
             </Link>
             <span>/</span>
             <ProjectTag name={project.name} color={project.color} />
+            {video.number > 0 && (
+              <>
+                <span>/</span>
+                {prev ? (
+                  <Link href={`/content/${prev.id}`} className="link">
+                    ← №{prev.number}
+                  </Link>
+                ) : null}
+                <span>№{video.number}</span>
+                {next ? (
+                  <Link href={`/content/${next.id}`} className="link">
+                    №{next.number} →
+                  </Link>
+                ) : null}
+              </>
+            )}
           </div>
           <h1>{video.title}</h1>
+          <p className="small">
+            {video.plan_date ? `По плану: ${ruDate(video.plan_date)}${video.plan_time ? `, ${video.plan_time}` : ''}` : 'Дата не назначена'}
+            {rubric ? ` · ${rubric}` : ''} · {video.status}
+            {video.script ? ` · ${countWords(video.script)} слов${project.words_norm ? ` (норма ${project.words_norm})` : ''}` : ''}
+          </p>
           {parent && (
             <p className="small">
               Продолжение ролика{' '}
@@ -96,7 +123,7 @@ export default async function VideoPage({ params }: { params: Promise<{ id: stri
             <b>Ролик залетел.</b>{' '}
             {missing.length
               ? `Опубликуйте его в ${missing.map((m) => PLATFORM_LABEL[m]).join(', ')}, пока тема горячая, и снимите продолжение.`
-              : 'Снимите продолжение с тем же хуком — кнопка «Сделать часть 2» создаст карточку в идеях.'}
+              : 'Снимите продолжение с тем же хуком — кнопка «Сделать часть 2» добавит сценарий в конец плана.'}
           </span>
         </div>
       )}
@@ -122,7 +149,10 @@ export default async function VideoPage({ params }: { params: Promise<{ id: stri
               </div>
               <div className="spread">
                 <span className="muted">Длительность</span>
-                <span>{fmtDuration(video.duration)}</span>
+                <span style={{ color: lengthState && lengthState !== 'ok' ? 'var(--critical-ink)' : undefined }}>
+                  {fmtDuration(video.duration)}
+                  {lengthNorm ? ` · норма ${lengthNorm.min}–${lengthNorm.max} с` : ''}
+                </span>
               </div>
               <div className="spread">
                 <span className="muted">Разрешение</span>
@@ -144,10 +174,21 @@ export default async function VideoPage({ params }: { params: Promise<{ id: stri
         </aside>
 
         <div className="stack" style={{ gap: 16 }}>
+          <ScriptEditor
+            video={video}
+            rubric={rubric}
+            rubrics={rubrics}
+            ctas={ctas}
+            snippets={snippets}
+            wordsNorm={parseRange(project.words_norm)}
+            ai={aiEnabled()}
+            sequels={sequels}
+          />
+
           <PublishPanel
             videoId={id}
             hasFile={!!video.file_name}
-            title={video.title}
+            title={video.cover_text || video.title}
             duration={video.duration}
             accounts={accounts.map((a) => ({
               id: a.id,
@@ -159,8 +200,8 @@ export default async function VideoPage({ params }: { params: Promise<{ id: stri
               posted: posts.some((p) => p.account_id === a.id && ['scheduled', 'publishing', 'processing', 'published'].includes(p.status)),
             }))}
             defaults={defaults}
-            nextSlot={slot ? { iso: slot.toISOString(), label: fmtDate(slot.toISOString(), tz) } : null}
-            defaultAt={toLocalInput(slot ?? new Date(Date.now() + 3_600_000), tz)}
+            planned={planned && planned.getTime() > Date.now() ? { local: toLocalInput(planned, tz), label: fmtDate(planned.toISOString(), tz) } : null}
+            defaultAt={toLocalInput(planned && planned.getTime() > Date.now() ? planned : new Date(Date.now() + 3_600_000), tz)}
             ai={aiEnabled()}
             tz={tz}
           />
@@ -269,14 +310,7 @@ export default async function VideoPage({ params }: { params: Promise<{ id: stri
             </section>
           )}
 
-          <VideoEditor
-            video={video}
-            projects={projects}
-            rubrics={rubrics}
-            snippets={snippets}
-            ai={aiEnabled()}
-            sequels={sequels}
-          />
+
         </div>
       </div>
     </>

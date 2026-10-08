@@ -84,7 +84,7 @@ export function AttachFile({ videoId }: { videoId: number }) {
       >
         <IconUpload size={26} />
         <div style={{ fontWeight: 600 }}>Прикрепите видео</div>
-        <div className="hint">Ролик снят? Перетащите файл — карточка перейдёт в «Готово».</div>
+        <div className="hint">Перетащите файл или нажмите сюда — статус сценария станет «Смонтирован».</div>
         <input ref={input} type="file" accept="video/*" hidden onChange={(e) => handle(e.target.files)} />
       </div>
       {progress != null && (

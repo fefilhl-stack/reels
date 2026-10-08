@@ -118,6 +118,7 @@ function applyOutcome(post: Post, outcome: PublishOutcome) {
     post.id,
   );
   run('INSERT OR IGNORE INTO post_snapshots (post_id, at, views, likes, comments, shares, saves) VALUES (?, ?, 0, 0, 0, 0, 0)', post.id, now);
+  run("UPDATE videos SET status = 'Опубликован', updated_at = ? WHERE id = ?", now, post.video_id);
   log('info', `Опубликовано в ${PLATFORM_LABEL[post.platform]}${outcome.url ? `: ${outcome.url}` : ''}`, {
     postId: post.id,
     accountId: post.account_id,

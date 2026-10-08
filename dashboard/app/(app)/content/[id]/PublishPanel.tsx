@@ -39,7 +39,7 @@ export function PublishPanel({
   duration,
   accounts,
   defaults,
-  nextSlot,
+  planned,
   defaultAt,
   ai,
   tz,
@@ -50,7 +50,7 @@ export function PublishPanel({
   duration: number;
   accounts: Acc[];
   defaults: Record<Platform, string>;
-  nextSlot: { iso: string; label: string } | null;
+  planned: { local: string; label: string } | null;
   defaultAt: string;
   ai: boolean;
   tz: string;
@@ -74,7 +74,7 @@ export function PublishPanel({
     ),
   );
   const [creator, setCreator] = useState<Record<number, { privacyOptions: string[]; maxDurationSec?: number; commentDisabled?: boolean; duetDisabled?: boolean; stitchDisabled?: boolean; error?: string }>>({});
-  const [mode, setMode] = useState<When['mode']>(nextSlot ? 'queue' : 'at');
+  const [mode, setMode] = useState<'plan' | 'at' | 'now'>(planned ? 'plan' : 'at');
   const [at, setAt] = useState(defaultAt);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -118,12 +118,12 @@ export function PublishPanel({
     });
   }
 
-  function submit(forceMode?: When['mode']) {
+  function submit(forceMode?: 'now') {
     const m = forceMode ?? mode;
     const targets: PublishTarget[] = accounts
       .filter((a) => drafts[a.id].on)
       .map((a) => ({ accountId: a.id, title: drafts[a.id].title, caption: drafts[a.id].caption, options: drafts[a.id].options }));
-    const when: When = m === 'at' ? { mode: 'at', at } : { mode: m };
+    const when: When = m === 'now' ? { mode: 'now' } : { mode: 'at', at: m === 'plan' && planned ? planned.local : at };
     start(async () => setResult(await schedulePublish(videoId, targets, when)));
   }
 
@@ -287,9 +287,10 @@ export function PublishPanel({
         <div className="stack-sm">
           <span className="label">Когда</span>
           <div className="row" style={{ gap: 14 }}>
-            {nextSlot && (
+            {planned && (
               <label className="check">
-                <input type="radio" name="when" checked={mode === 'queue'} onChange={() => setMode('queue')} />В очередь: {nextSlot.label}
+                <input type="radio" name="when" checked={mode === 'plan'} onChange={() => setMode('plan')} />
+                По плану: {planned.label}
               </label>
             )}
             <label className="check">

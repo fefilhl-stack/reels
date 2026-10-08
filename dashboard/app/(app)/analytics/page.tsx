@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import {
+  ctaStats,
   dailyViews,
   DURATION_BUCKETS,
   durationBucket,
@@ -10,8 +11,11 @@ import {
   median,
   postingHeatmap,
   rollupVideos,
+  WORD_BUCKETS,
+  wordBucket,
   type GroupStat,
 } from '@/lib/analytics';
+import { ctaKind } from '@/lib/plan';
 import { all } from '@/lib/db';
 import { fmtDate, fmtMultiple, fmtNum, fmtPct } from '@/lib/format';
 import { getScope } from '@/lib/scope';
@@ -87,6 +91,26 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
     .sort((a, b) => DURATION_BUCKETS.findIndex((x) => x.key === a.key) - DURATION_BUCKETS.findIndex((x) => x.key === b.key))
     .map((s) => ({ key: s.key, label: s.label, value: s.medianScore ?? 0, display: fmtMultiple(s.medianScore), detail: `${s.videos} роликов · медиана ${fmtNum(s.medianViews)} просмотров` }));
   const byPlatform = groupStats(set.facts, (f) => f.platform, (f) => PLATFORM_LABEL[f.platform]);
+  const ctaRows = ctaStats(set.facts, ctaKind);
+  const wordRows = groupStats(
+    set.facts.filter((f) => f.words > 0),
+    (f) => wordBucket(f.words).key,
+    (f) => wordBucket(f.words).label,
+  )
+    .filter((s) => s.medianScore != null)
+    .sort((a, b) => WORD_BUCKETS.findIndex((x) => x.key === a.key) - WORD_BUCKETS.findIndex((x) => x.key === b.key))
+    .map((s) => ({ key: s.key, label: s.label, value: s.medianScore ?? 0, display: fmtMultiple(s.medianScore), detail: `${s.videos} роликов · медиана ${fmtNum(s.medianViews)} просмотров` }));
+  const shareRows = scope
+    ? (() => {
+        const counts = all<{ name: string; share: number | null; n: number }>(
+          `SELECT r.name, r.share, (SELECT COUNT(*) FROM videos v WHERE v.rubric_id = r.id AND v.number > 0) AS n
+             FROM rubrics r WHERE r.project_id = ? ORDER BY r.name`,
+          scope.id,
+        );
+        const total = counts.reduce((s, r) => s + r.n, 0) || 1;
+        return counts.map((r) => ({ name: r.name, share: r.share, actual: r.n / total }));
+      })()
+    : [];
   const heat = postingHeatmap(set.facts);
 
   const videos = rollupVideos(inRange);
@@ -234,6 +258,103 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
               </div>
               <div className="card-body">
                 <Heatmap cells={heat} />
+              </div>
+            </section>
+          </div>
+
+          <div className="grid-3">
+            <section className="card">
+              <div className="card-head">
+                <div>
+                  <h2>Призывы</h2>
+                  <p>Делает ли зритель то, о чём просят</p>
+                </div>
+              </div>
+              <div className="card-body table-wrap">
+                {ctaRows.length ? (
+                  <table className="table table-tight">
+                    <thead>
+                      <tr>
+                        <th>Призыв</th>
+                        <th className="num">Сохр.</th>
+                        <th className="num">Репосты</th>
+                        <th className="num">Комм.</th>
+                        <th className="num">×</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ctaRows.map((c) => (
+                        <tr key={c.key}>
+                          <td>
+                            {c.key}
+                            <div className="small muted">{c.videos} рол.</div>
+                          </td>
+                          <td className="num" style={{ fontWeight: c.key === 'Сохранить' ? 650 : undefined }}>
+                            {fmtPct(c.saves, 2)}
+                          </td>
+                          <td className="num" style={{ fontWeight: c.key === 'Отправить' ? 650 : undefined }}>
+                            {fmtPct(c.shares, 2)}
+                          </td>
+                          <td className="num" style={{ fontWeight: c.key === 'Комментарий' ? 650 : undefined }}>
+                            {fmtPct(c.comments, 2)}
+                          </td>
+                          <td className="num">{fmtMultiple(c.medianScore)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <Empty title="Заполняйте столбец «Призыв» в контент-плане" />
+                )}
+                <p className="hint" style={{ marginTop: 8 }}>
+                  Доля от просмотров; × — просмотры относительно обычных для аккаунта. Сохранения считает
+                  только Instagram.
+                </p>
+              </div>
+            </section>
+            <section className="card">
+              <div className="card-head">
+                <div>
+                  <h2>Длина текста</h2>
+                  <p>Слов в тексте озвучки и результат</p>
+                </div>
+              </div>
+              <div className="card-body">
+                {wordRows.length ? <BarList rows={wordRows} baseline={{ value: 1, label: '1× — как обычно' }} /> : <Empty title="Нет текстов озвучки у опубликованных роликов" />}
+              </div>
+            </section>
+            <section className="card">
+              <div className="card-head">
+                <div>
+                  <h2>Рубрики: план и факт</h2>
+                  <p>{scope ? 'Доля в контент-плане против паспорта' : 'Выберите проект вверху'}</p>
+                </div>
+              </div>
+              <div className="card-body table-wrap">
+                {scope && shareRows.length ? (
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Рубрика</th>
+                        <th className="num">План</th>
+                        <th className="num">В плане</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {shareRows.map((r) => (
+                        <tr key={r.name}>
+                          <td>{r.name}</td>
+                          <td className="num">{r.share != null ? fmtPct(r.share, 0) : '—'}</td>
+                          <td className="num" style={{ color: r.share != null && Math.abs(r.actual - r.share) > 0.08 ? 'var(--critical-ink)' : undefined }}>
+                            {fmtPct(r.actual, 0)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <Empty title={scope ? 'Добавьте рубрики в паспорт проекта' : 'Для одного проекта'} />
+                )}
               </div>
             </section>
           </div>

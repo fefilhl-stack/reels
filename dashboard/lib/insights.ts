@@ -10,7 +10,8 @@ import {
   type FactSet,
 } from './analytics';
 import { fmtMultiple, fmtNum } from './format';
-import { appTz, DAY_MS, startOfWeek, weekdayShort } from './time';
+import { countWords, parseRange, rangeState, ruDate } from './plan';
+import { appTz, DAY_MS, dayKey, parseLocal, weekdayShort } from './time';
 import { HOUR_BUCKETS } from './analytics';
 import { PLATFORM_LABEL, type Account, type Platform, type Project } from './types';
 
@@ -34,7 +35,6 @@ const ORDER: Record<Severity, number> = { critical: 0, warning: 1, opportunity: 
 
 export function buildInsights(set: FactSet, projects: Project[], now = new Date()): Insight[] {
   const out: Insight[] = [];
-  const tz = appTz();
   const projectIds = projects.map((p) => p.id);
   if (!projectIds.length) return out;
   const inList = projectIds.join(',');
@@ -99,8 +99,6 @@ export function buildInsights(set: FactSet, projects: Project[], now = new Date(
   }
 
   // --- Per project ------------------------------------------------------------
-  const weekStart = startOfWeek(now, tz);
-  const weekEnd = new Date(weekStart.getTime() + 7 * DAY_MS);
   for (const p of projects) {
     const facts = set.facts.filter((f) => f.projectId === p.id);
     const projAccounts = accounts.filter((a) => a.project_id === p.id);
@@ -117,70 +115,112 @@ export function buildInsights(set: FactSet, projects: Project[], now = new Date(
       continue;
     }
 
-    // Plan for this week: distinct videos published or scheduled Mon–Sun.
-    const thisWeek = all<{ n: number }>(
-      `SELECT COUNT(DISTINCT p.video_id) AS n FROM posts p JOIN videos v ON v.id = p.video_id
-        WHERE v.project_id = ? AND p.status IN ('scheduled','publishing','processing','published')
-          AND COALESCE(p.published_at, p.scheduled_at) >= ? AND COALESCE(p.published_at, p.scheduled_at) < ?`,
-      p.id,
-      weekStart.toISOString(),
-      weekEnd.toISOString(),
-    )[0].n;
-    const gap = p.posts_per_week - thisWeek;
-    if (gap > 0) {
-      out.push({
-        id: `plan-${p.id}`,
-        severity: 'warning',
-        projectId: p.id,
-        title: `«${p.name}»: на этой неделе ${thisWeek} из ${p.posts_per_week} роликов`,
-        detail: `Запланируйте ещё ${gap}. Регулярность важнее разовых всплесков: алгоритмы и аудитория привыкают к ритму.`,
-        href: '/calendar',
-        action: 'В календарь',
-      });
-    }
-
-    // Content buffer: ready-to-post videos vs. weekly plan.
-    const pipeline = all<{ stage: string; n: number }>(
-      `SELECT v.stage, COUNT(*) AS n FROM videos v
-        WHERE v.project_id = ? AND NOT EXISTS (SELECT 1 FROM posts p WHERE p.video_id = v.id AND p.status != 'canceled')
-        GROUP BY v.stage`,
+    // --- Content plan -------------------------------------------------------
+    const demoOnly = projAccounts.every((a) => a.is_demo);
+    const plan = all<{ id: number; number: number; title: string; plan_date: string | null; plan_time: string | null; status: string; file_name: string | null; script: string; posts: number; published: number }>(
+      `SELECT v.id, v.number, v.title, v.plan_date, v.plan_time, v.status, v.file_name, v.script,
+              (SELECT COUNT(*) FROM posts p WHERE p.video_id = v.id AND p.status IN ('scheduled','publishing','processing','published')) AS posts,
+              (SELECT COUNT(*) FROM posts p WHERE p.video_id = v.id AND p.status = 'published') AS published
+         FROM videos v WHERE v.project_id = ? AND v.number > 0 ORDER BY v.number`,
       p.id,
     );
-    const count = (s: string) => pipeline.find((x) => x.stage === s)?.n ?? 0;
-    const ready = count('ready');
-    if (ready < p.posts_per_week) {
+    const at = (r: (typeof plan)[number]) => (r.plan_date ? (parseLocal(`${r.plan_date}T${r.plan_time || '12:00'}`)?.getTime() ?? null) : null);
+    const when = (r: (typeof plan)[number]) => `№${r.number} (${ruDate(r.plan_date).slice(0, 5)}${r.plan_time ? ` ${r.plan_time}` : ''})`;
+    const nowMs = now.getTime();
+
+    const soon = plan.filter((r) => {
+      const t = at(r);
+      return t != null && t > nowMs && t - nowMs < 72 * 3_600_000 && !r.posts && !r.file_name && r.status !== 'Опубликован';
+    });
+    if (soon.length && !demoOnly) {
+      const urgent = soon.some((r) => (at(r) ?? 0) - nowMs < 26 * 3_600_000);
       out.push({
-        id: `buffer-${p.id}`,
-        severity: ready === 0 ? 'warning' : 'info',
+        id: `soon-${p.id}`,
+        severity: urgent ? 'critical' : 'warning',
         projectId: p.id,
-        title: `«${p.name}»: готовых роликов в запасе — ${ready}`,
-        detail: `Это меньше недели публикаций (${p.posts_per_week}). В производстве ${count('production')}, в сценариях ${count('script')}. Держите запас на 1–2 недели — так не придётся снимать в последний момент.`,
-        href: '/content',
-        action: 'К контенту',
-      });
-    }
-    if (count('idea') < 5) {
-      out.push({
-        id: `ideas-${p.id}`,
-        severity: 'info',
-        projectId: p.id,
-        title: `«${p.name}»: в банке идей ${count('idea')}`,
-        detail: 'Пополните банк хотя бы до 10 идей — разбирайте залетевшие ролики и комментарии к ним.',
-        href: '/content',
-        action: 'Добавить идеи',
+        title: `«${p.name}»: на ближайшие 3 дня не загружено роликов — ${soon.length}`,
+        detail: `${soon.map(when).join(', ')}. Загрузите ролики в контент-плане, чтобы они вышли по расписанию.`,
+        href: `/content?p=${p.id}`,
+        action: 'К плану',
       });
     }
 
-    const lastPub = facts.reduce((m, f) => Math.max(m, f.publishedAt), 0);
-    if (lastPub && now.getTime() - lastPub > 5 * DAY_MS) {
+    const waiting = plan.filter((r) => {
+      const t = at(r);
+      return t != null && t > nowMs && !r.posts && (r.file_name || (demoOnly && r.status === 'Смонтирован')) && r.status !== 'Опубликован';
+    });
+    if (waiting.length) {
       out.push({
-        id: `silence-${p.id}`,
+        id: `waiting-${p.id}`,
         severity: 'warning',
         projectId: p.id,
-        title: `«${p.name}»: тишина ${Math.floor((now.getTime() - lastPub) / DAY_MS)} дн.`,
-        detail: 'Долгие паузы снижают охваты следующих роликов. Опубликуйте что-то из запаса.',
-        href: '/content',
-        action: 'Выбрать ролик',
+        title: `«${p.name}»: загружено, но не запланировано — ${waiting.length}`,
+        detail: `${waiting.slice(0, 5).map(when).join(', ')}${waiting.length > 5 ? '…' : ''}. Кнопка «Запланировать загруженные» поставит их на даты из плана.`,
+        href: `/content?p=${p.id}`,
+        action: 'Запланировать',
+      });
+    }
+
+    const missed = plan.filter((r) => {
+      const t = at(r);
+      return t != null && nowMs - t > 2 * 3_600_000 && nowMs - t < 21 * DAY_MS && !r.published && r.status !== 'Опубликован';
+    });
+    if (missed.length) {
+      out.push({
+        id: `missed-${p.id}`,
+        severity: 'warning',
+        projectId: p.id,
+        title: `«${p.name}»: пропущено по плану — ${missed.length}`,
+        detail: `${missed.slice(0, 5).map(when).join(', ')}. Опубликуйте или перенесите даты — регулярность важнее разовых всплесков.`,
+        href: `/content?p=${p.id}`,
+        action: 'К плану',
+      });
+    }
+
+    const lastDate = plan.reduce<string | null>((m, r) => (r.plan_date && (!m || r.plan_date > m) ? r.plan_date : m), null);
+    const ymdMs = (k: string) => Date.UTC(+k.slice(0, 4), +k.slice(5, 7) - 1, +k.slice(8, 10));
+    const daysLeft = lastDate ? Math.round((ymdMs(lastDate) - ymdMs(dayKey(now, appTz()))) / DAY_MS) : -1;
+    if (daysLeft < 7) {
+      out.push({
+        id: `planend-${p.id}`,
+        severity: daysLeft < 3 ? 'warning' : 'info',
+        projectId: p.id,
+        title: lastDate ? `«${p.name}»: контент-план заканчивается ${ruDate(lastDate)}` : `«${p.name}»: контент-план пуст`,
+        detail: 'Допишите сценарии хотя бы на две недели вперёд — темы можно подобрать по залетевшим роликам кнопкой «Темы по лучшим роликам».',
+        href: `/content?p=${p.id}`,
+        action: 'Добавить сценарии',
+      });
+    }
+
+    const norm = parseRange(p.words_norm);
+    if (norm) {
+      const off = plan.filter((r) => r.status !== 'Опубликован' && r.script.trim() && rangeState(countWords(r.script), norm) !== 'ok');
+      if (off.length) {
+        out.push({
+          id: `words-${p.id}`,
+          severity: 'info',
+          projectId: p.id,
+          title: `«${p.name}»: вне нормы слов (${p.words_norm}) — ${off.length}`,
+          detail: `${off.slice(0, 6).map((r) => `№${r.number}: ${countWords(r.script)}`).join(', ')}. Длинный текст не влезет в хронометраж, короткий — недодаст пользы.`,
+          href: `/content?p=${p.id}`,
+          action: 'К плану',
+        });
+      }
+    }
+
+    const notVoiced = plan.filter((r) => {
+      const t = at(r);
+      return t != null && t > nowMs && t - nowMs < 7 * DAY_MS && r.status === 'Не начат';
+    });
+    if (notVoiced.length >= 2) {
+      out.push({
+        id: `voice-${p.id}`,
+        severity: 'info',
+        projectId: p.id,
+        title: `«${p.name}»: не озвучено на неделю вперёд — ${notVoiced.length}`,
+        detail: `${notVoiced.slice(0, 6).map(when).join(', ')}. Озвучьте их пачкой — так быстрее, чем по одному в день.`,
+        href: `/content?p=${p.id}`,
+        action: 'К плану',
       });
     }
 
@@ -244,9 +284,9 @@ export function buildInsights(set: FactSet, projects: Project[], now = new Date(
         severity: 'info',
         projectId: p.id,
         title: `«${p.name}»: лучшее время — ${weekdayShort(slot.wd)}, ${HOUR_BUCKETS[slot.bucket]} ч`,
-        detail: `Ролики в это окно набирают ${fmtMultiple(slot.score)} от обычного (по ${slot.n} публикациям). Поставьте туда слоты очереди.`,
+        detail: `Ролики в это окно набирают ${fmtMultiple(slot.score)} от обычного (по ${slot.n} публикациям). Сравните со временем публикации в паспорте проекта.`,
         href: `/projects/${p.id}`,
-        action: 'Настроить слоты',
+        action: 'Время в паспорте',
       });
     }
 

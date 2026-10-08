@@ -5,7 +5,7 @@ import { all, getSetting } from '@/lib/db';
 import { env } from '@/lib/env';
 import { fmtRelative } from '@/lib/format';
 import { getScope } from '@/lib/scope';
-import { IconUpload } from '@/components/Icons';
+import { IconBoard } from '@/components/Icons';
 import { ScopeSwitcher } from '@/components/ScopeSwitcher';
 import { Sidebar } from '@/components/Sidebar';
 
@@ -33,8 +33,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <header className="topbar">
           <ScopeSwitcher projects={projects} current={scope?.id ?? 0} />
           <div style={{ flex: 1 }} />
-          <Link href="/content/new" className="btn btn-primary">
-            <IconUpload /> <span className="btn-text">Загрузить ролик</span>
+          <Link href={scope ? `/content?p=${scope.id}` : '/content'} className="btn btn-primary">
+            <IconBoard /> <span className="btn-text">Контент-план</span>
           </Link>
         </header>
         <main className="content">{children}</main>

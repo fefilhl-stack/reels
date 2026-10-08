@@ -124,10 +124,13 @@ export async function importRecent(accountId: number, limit = 30): Promise<numbe
       const exists = get<{ id: number }>('SELECT id FROM posts WHERE account_id = ? AND external_id = ?', account.id, it.externalId);
       if (exists) continue;
       const title = (it.title || it.caption || 'Без названия').split('\n')[0].slice(0, 120);
+      // Number 0 keeps videos published before the dashboard out of the content plan;
+      // they still count in analytics.
       const video = run(
-        `INSERT INTO videos (project_id, title, stage, caption, duration, original_name, created_at, updated_at)
-         VALUES (?, ?, 'ready', ?, ?, 'импорт', ?, ?)`,
+        `INSERT INTO videos (project_id, number, plan_date, title, status, caption, duration, original_name, created_at, updated_at)
+         VALUES (?, 0, ?, ?, 'Опубликован', ?, ?, 'импорт', ?, ?)`,
         account.project_id,
+        it.publishedAt.slice(0, 10),
         title,
         it.caption,
         it.duration,

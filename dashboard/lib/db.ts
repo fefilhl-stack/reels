@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS projects (
   color INTEGER NOT NULL DEFAULT 0,
   description TEXT NOT NULL DEFAULT '',
   audience TEXT NOT NULL DEFAULT '',
-  posts_per_week INTEGER NOT NULL DEFAULT 3,
+  posts_per_week INTEGER NOT NULL DEFAULT 7,
   followers_goal INTEGER,
   goal_deadline TEXT,
   slots TEXT NOT NULL DEFAULT '[]',
@@ -152,10 +152,76 @@ CREATE TABLE IF NOT EXISTS settings (
 
 type G = typeof globalThis & { __reelsDb?: DatabaseSync };
 
+// Columns added after the first release. New databases get them here too, so the
+// CREATE TABLE statements above stay as they were and every install converges.
+const COLUMNS: Record<string, Record<string, string>> = {
+  projects: {
+    promise: "TEXT NOT NULL DEFAULT ''",
+    goal_text: "TEXT NOT NULL DEFAULT ''",
+    format: "TEXT NOT NULL DEFAULT ''",
+    video_length: "TEXT NOT NULL DEFAULT ''",
+    words_norm: "TEXT NOT NULL DEFAULT ''",
+    frequency: "TEXT NOT NULL DEFAULT ''",
+    start_date: 'TEXT',
+    time_weekday: "TEXT NOT NULL DEFAULT '18:00'",
+    time_weekend: "TEXT NOT NULL DEFAULT '17:00'",
+    address_form: "TEXT NOT NULL DEFAULT ''",
+    rubrics_text: "TEXT NOT NULL DEFAULT ''",
+    ctas: "TEXT NOT NULL DEFAULT ''",
+    facts: "TEXT NOT NULL DEFAULT ''",
+    exclusions: "TEXT NOT NULL DEFAULT ''",
+    specialist: "TEXT NOT NULL DEFAULT ''",
+    open_questions: "TEXT NOT NULL DEFAULT ''",
+    checks: "TEXT NOT NULL DEFAULT ''",
+  },
+  rubrics: {
+    share: 'REAL',
+  },
+  videos: {
+    number: 'INTEGER NOT NULL DEFAULT 0',
+    plan_date: 'TEXT',
+    plan_time: 'TEXT',
+    cover_text: "TEXT NOT NULL DEFAULT ''",
+    shot: "TEXT NOT NULL DEFAULT ''",
+    cta: "TEXT NOT NULL DEFAULT ''",
+    status: "TEXT NOT NULL DEFAULT 'Не начат'",
+  },
+};
+
+function migrate(db: DatabaseSync) {
+  for (const [table, cols] of Object.entries(COLUMNS)) {
+    const have = new Set((db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name));
+    for (const [name, ddl] of Object.entries(cols)) {
+      if (have.has(name)) continue;
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${ddl}`);
+      if (table === 'videos' && name === 'status') {
+        // Kanban stages → template statuses.
+        db.exec(`UPDATE videos SET status = CASE
+            WHEN EXISTS (SELECT 1 FROM posts p WHERE p.video_id = videos.id AND p.status = 'published') THEN 'Опубликован'
+            WHEN file_name IS NOT NULL OR stage = 'ready' THEN 'Смонтирован'
+            WHEN stage = 'production' THEN 'Озвучен'
+            ELSE 'Не начат' END`);
+      }
+      if (table === 'videos' && name === 'plan_date') {
+        // Published videos get the day they went out as their plan date.
+        db.exec(`UPDATE videos SET plan_date = (SELECT substr(MIN(COALESCE(p.published_at, p.scheduled_at)), 1, 10) FROM posts p
+            WHERE p.video_id = videos.id AND p.status != 'canceled')`);
+      }
+      if (table === 'videos' && name === 'number') {
+        // Number existing rows per project in creation order.
+        db.exec(`UPDATE videos SET number = (SELECT COUNT(*) FROM videos v2
+            WHERE v2.project_id = videos.project_id AND (v2.created_at < videos.created_at OR (v2.created_at = videos.created_at AND v2.id <= videos.id)))`);
+      }
+    }
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS videos_plan ON videos(project_id, number)');
+}
+
 function open(): DatabaseSync {
   const db = new DatabaseSync(path.join(DATA_DIR, 'reels.db'));
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
+  migrate(db);
   return db;
 }
 

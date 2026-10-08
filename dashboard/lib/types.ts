@@ -7,18 +7,9 @@ export const PLATFORM_LABEL: Record<Platform, string> = {
   youtube: 'YouTube',
 };
 
-/** Stored production stage. "scheduled" and "published" are derived from posts. */
-export type Stage = 'idea' | 'script' | 'production' | 'ready';
-export type Column = Stage | 'scheduled' | 'published';
-
-export const COLUMN_LABEL: Record<Column, string> = {
-  idea: 'Идеи',
-  script: 'Сценарий',
-  production: 'Съёмка и монтаж',
-  ready: 'Готово',
-  scheduled: 'Запланировано',
-  published: 'Опубликовано',
-};
+/** Script statuses — the same list as the «Статус» dropdown in the Google Sheets template. */
+export const STATUSES = ['Не начат', 'Озвучен', 'Смонтирован', 'Опубликован'] as const;
+export type ScriptStatus = (typeof STATUSES)[number];
 
 export type PostStatus = 'scheduled' | 'publishing' | 'processing' | 'published' | 'failed' | 'canceled';
 
@@ -31,17 +22,51 @@ export const POST_STATUS_LABEL: Record<PostStatus, string> = {
   canceled: 'Отменён',
 };
 
-export type Slot = { d: number; t: string }; // d: 1 = Monday … 7 = Sunday, t: "HH:MM"
-
+/** Project passport — mirrors the «Проекты» sheet of the template. */
 export interface Project {
   id: number;
   name: string;
   color: number;
+  /** Тема аккаунта */
   description: string;
+  /** Обещание зрителю */
+  promise: string;
+  /** Цель (text) */
+  goal_text: string;
   audience: string;
+  /** Формат */
+  format: string;
+  /** Длина ролика, e.g. "40–60 секунд" */
+  video_length: string;
+  /** Норма слов, e.g. "100–120" */
+  words_norm: string;
+  /** Частота, e.g. "Один ролик в день" */
+  frequency: string;
+  /** Дата старта (YYYY-MM-DD) — plan dates are counted from it */
+  start_date: string | null;
+  /** Время публикации в будни / выходные (HH:MM) */
+  time_weekday: string;
+  time_weekend: string;
+  /** Обращение */
+  address_form: string;
+  /** Рубрики — the passport text as written; structured list lives in `rubrics` */
+  rubrics_text: string;
+  /** Призывы */
+  ctas: string;
+  /** На чём основаны факты */
+  facts: string;
+  /** Чего в роликах нет */
+  exclusions: string;
+  /** Где нужна фраза о специалисте */
+  specialist: string;
+  /** Открытые вопросы */
+  open_questions: string;
+  /** Что проверить перед публикацией */
+  checks: string;
   posts_per_week: number;
   followers_goal: number | null;
   goal_deadline: string | null;
+  /** Legacy weekly queue slots (JSON), superseded by frequency + publication times */
   slots: string;
   hashtags: string;
   caption_footer: string;
@@ -55,6 +80,8 @@ export interface Rubric {
   project_id: number;
   name: string;
   description: string;
+  /** Target share of the plan, 0..1 (from «Рубрики» in the passport) */
+  share: number | null;
 }
 
 export type AccountStatus = 'active' | 'reauth' | 'error';
@@ -80,18 +107,35 @@ export interface Account {
   last_synced_at: string | null;
 }
 
+/** A script row of the content plan (and its video once uploaded). */
 export interface Video {
   id: number;
   project_id: number;
   rubric_id: number | null;
   parent_id: number | null;
+  /** № in the plan */
+  number: number;
+  /** Дата / Время (YYYY-MM-DD, HH:MM, app time zone) */
+  plan_date: string | null;
+  plan_time: string | null;
+  /** Тема */
   title: string;
-  stage: Stage;
+  /** Хук */
   hook: string;
+  /** Обложка — text on the cover */
+  cover_text: string;
+  /** Кадр — what's on screen */
+  shot: string;
+  /** Текст озвучки */
   script: string;
-  notes: string;
+  /** Призыв */
+  cta: string;
+  /** Подпись */
   caption: string;
+  /** Хэштеги */
   hashtags: string;
+  status: ScriptStatus;
+  notes: string;
   file_name: string | null;
   original_name: string;
   file_size: number;
